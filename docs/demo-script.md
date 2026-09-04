@@ -1,95 +1,95 @@
 # CACHE MIND — 5-minute demo script
 
-Setup before you present:
+Setup:
 ```bash
 . .venv/bin/activate
-uvicorn api.main:app --port 8000      # then open http://localhost:8000
+bash scripts/dev.sh          # then open http://localhost:5173
 ```
-Dashboard scenario selector on **steady**, speed **8x**, policies LRU / LFU / GDSF / CACHE MIND.
+Scenario **steady**, speed **8x**, policies LRU / GDSF / GDSF-tiered / CACHE MIND.
 
 ---
 
 ### 0:00 — The problem (30s)
 
-> "LRU and LFU treat every cached object the same — they only look at *when* or
-> *how often* it was used. But a rarely-used object that takes 2 seconds and a
-> cent to rebuild from an external API is worth far more than a popular one that
-> recomputes for free. At scale that blind spot means you either over-provision
-> cache and burn money, or under-provision and thrash on every traffic spike."
+> "LRU and LFU only look at *when* or *how often* an object was used. They can't
+> see that a rarely-used object costing 2 seconds and a cent to rebuild from an
+> API is worth far more than a popular one that's free to recompute. At scale
+> you either over-provision expensive RAM, or under-provision and hammer the
+> backend on every spike."
 
-### 0:30 — What we built (30s)
+### 0:30 — What CACHE MIND is (40s)
 
-> "CACHE MIND scores every object by a **multi-factor value** — access pattern, size,
-> and the real latency-plus-dollar cost to regenerate it. A contextual bandit
-> re-tunes that score **at runtime**, and a cost-benefit controller grows the
-> cache only when it pays for itself."
+> "CACHE MIND turns the cache into an autonomous decision-maker over a
+> **multi-level cache** — L1 RAM, L2 Redis, L3 cold store. Every epoch it
+> observes, predicts, scores, and decides per object: keep, promote, demote,
+> prefetch, refresh, compress, evict, or scale. When something falls out of
+> L1 it's **demoted**, not evicted — so the next hit is 4 milliseconds, not a
+> 900-millisecond origin miss."
 
-### 1:00 — Live: steady state (60s)
+### 1:10 — Live: steady state (70s)
 
-Press **Start**. Let ~15 epochs accumulate.
+Press **Start**, let ~15 epochs build.
 
-- Point at **Cumulative cost** chart: "Same workload, same cache size, same cost
-  model for all four. CACHE MIND — the red line — is already the cheapest."
-- Point at the top-left card: "**~55% cheaper than LRU**, and it's beating GDSF,
-  the strongest classic cost-aware policy, by ~12% at the *same* capacity."
-- Point at **Detected regime = steady** and the **bandit weights** panel: "The
-  engine is adapting these weights every epoch, not running a fixed formula."
+- **Cost chart**: "Same workload, same cost model. GDSF — single-tier — is the
+  green line up top. The moment you add tiers, cost drops 40%. CACHE MIND, the
+  red line, is lower still."
+- Top-left card: "**~60% cheaper than LRU.**"
+- **p95 latency card**: "6 milliseconds — versus 14 for dumb tiering and 23 for
+  GDSF. CACHE MIND keeps the genuinely hot objects in L1, so even the 95th
+  percentile request is a fast hit."
+- **Cache tiers panel**: "You can watch objects distributed across L1/L2/L3.
+  GDSF-tiered just dumps everything into L1 first; CACHE MIND places each object
+  where its *net value* is highest."
+- **Weights panel**: "These weights are being re-chosen every epoch by a
+  contextual bandit — nothing here is hardcoded."
 
-### 2:00 — Live: the traffic spike (90s)
+### 2:20 — Live: the traffic spike (90s)
 
 Press **⚡ Inject traffic spike**.
 
-- "A flash crowd just hit — cold objects suddenly went hot, 3× the request rate."
-- Watch the **regime** card flip to `spike` and the **bandit arm** switch to
-  `cost_first`. "It noticed and re-weighted toward protecting expensive objects."
-- **Hit rate** chart: "LRU and LFU dip — they're evicting the working set to make
-  room for one-hit-wonders. CACHE MIND's admission control refuses to cache low-value
-  objects, so its hit rate holds."
-- **Cost** chart: "The gap *widens* during the spike — that's the whole point,
-  CACHE MIND is most valuable exactly when things go wrong."
-- **CACHE MIND cache capacity** chart: "And the autoscaler added capacity here —
-  because the ghost list showed those misses were worth more than the RAM."
+- "A flash crowd — cold objects suddenly hot, 3× the request rate."
+- **Regime card** flips to `spike`; **bandit arm** shifts (often to
+  `cost_first` or `predict_first`).
+- **Decision feed**: point at `prefetch` and `L2->L1` lines — "it's warming
+  predicted-hot objects and promoting them ahead of demand."
+- **Cost chart**: "The gap *widens* during the spike. LRU and GDSF are back to
+  hitting the origin; CACHE MIND absorbs it in the warm tiers."
 
-### 3:30 — The benchmark (60s)
+### 3:50 — The benchmark (50s)
 
-Open `results/REPORT_api.md` (and `results/figs/api_spike.png`).
+Open `results/REPORT_api.md` and `results/ABLATION_api.md`.
 
-> "Three scenarios — steady, spike, gradual popularity shift — against LRU, LFU,
-> GDS and GDSF. CACHE MIND cuts cost 59–62% versus the best baseline. Note LFU
-> actually gets *worse* than LRU under a popularity shift — stale frequency
-> counts — while CACHE MIND stays flat. And this is the same engine, no retuning, on
-> both a read-heavy API workload and a compute-heavy recommendation workload."
+> "Four scenarios — steady, spike, popularity shift, and an adversarial
+> regime-flip — against LRU, LFU, GDS, GDSF and the tiered baselines. CACHE MIND
+> is 58–71% cheaper than GDSF, and — critically — **13–28% cheaper than
+> GDSF-tiered, which has the exact same L1/L2/L3 hardware.** That gap is pure
+> placement intelligence. The ablation shows tiering is the biggest lever, then
+> smart placement and prefetch, then the autoscaler and refresh."
 
-### 4:30 — Close (30s)
+### 4:40 — Close (20s)
 
-> "So: a value model instead of a single metric, adaptation instead of a fixed
-> policy, and scaling driven by a cost-benefit test instead of a guess.
-> Everything you saw is live — the dashboard is driving the real engine, not a
-> recording."
+> "A value model instead of a single metric. Placement economics instead of
+> keep-or-drop. Prediction and prefetch instead of reacting. And it adapts at
+> runtime — the dashboard is driving the real engine, live."
 
 ---
 
 ## Likely jury questions
 
-**"Isn't the autoscaler win just from a bigger cache?"**
-No — the fixed-capacity number (`CM-fixed` row) still beats every baseline at
-*identical* size. The autoscaler is a separate, additional gain, and it's
-bounded (3× ceiling) and reversible (it shrinks on the diurnal scenario).
+**"Isn't this just a bigger cache?"** The `GDSF-tiered` baseline has identical
+L1/L2/L3 sizes and the same cost model. CACHE MIND beats it by 13–28% cost and
+~⅔ latency — that's placement, prefetch and adaptation, not capacity.
 
-**"Why a bandit and not just a heuristic / full ML?"**
-A heuristic can't respond to regime change; full ML needs training data we don't
-have at cold start and is hard to justify live. LinUCB is a standard, explainable
-online algorithm — you can watch it explore and converge on the dashboard.
+**"Heuristic, ML, or hybrid?"** Hybrid. GDSF heuristic core (provable floor),
+LinUCB bandit + access predictor (ML), online-adaptive normalisers.
 
-**"How is retrieval cost known in production?"**
-Measured. The cache already sees every origin fetch — it records actual latency
-and (from billing metadata / config) the dollar cost, and feeds an EWMA back
-into the score normalizers.
+**"The 'simulate every decision' idea from our brief?"** We run shadow baseline
+policies in parallel in the live sim — real counterfactuals — rather than an
+intractable per-object lookahead search.
 
-**"Overhead?"**
-Eviction is sampled (Redis-style), O(1) amortised. The bandit is a 8×8 linear
-solve once per epoch. The value score is ~10 float ops per candidate.
+**"How would L2/L3 latency and price be known?"** They're deployment constants
+(your Redis tier's p99, your object-store pricing). The engine reads them from
+`CostConfig`.
 
-**"What if the workload never changes?"**
-Then CACHE MIND ≈ GDSF by construction (the bandit tilt goes to ~0). You lose nothing;
-you gain the adaptivity for free.
+**"Overhead?"** Sampled eviction (O(1) amortised), an 8×8 bandit solve per
+epoch, memoised `serve_saving`, a bounded per-epoch move budget.

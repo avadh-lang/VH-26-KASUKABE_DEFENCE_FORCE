@@ -27,10 +27,19 @@ warm hit.
 | **GDSF-tiered** (same L1/L2/L3, dumb placement) | 0.95 | ~20 ms | | **−45 %** | — |
 | **CACHE MIND** (smart placement + prefetch + adapt) | 0.95 | **~6 ms** | | **−60 %** | **−18 %** |
 
-Two separable wins: **tiering** turns evictions into warm hits (−45 %), and
-CACHE MIND's **intelligence on the same hardware** cuts another ~18 % of cost
-and ~⅔ of the p95 latency by keeping the genuinely hot objects in fast L1 and
-warming predicted-hot objects before they're asked for.
+Two separable wins:
+- **Tiering** turns evictions into warm L2/L3 hits instead of origin misses —
+  −45 % cost vs single-tier GDSF.
+- **Smart refresh** — serve-stale-on-purpose for low-drift low-value entries +
+  proactive background refresh of hot ones, instead of a blocking refetch on
+  every stale hit — a further −13 to −28 % vs `GDSF-tiered` on the *same*
+  hardware.
+- **Value-aware placement** keeps the genuinely hot objects in fast L1, so p95
+  latency is a flat **6 ms** vs 9–22 ms for dumb tiering.
+
+The bandit, autoscaler, prefetch and compression are within a few percent on
+these Zipf workloads — kept for runtime adaptivity and robustness (full
+per-feature ablation in `results/ABLATION_api.md`).
 
 Beats every baseline on **four** scenarios: steady, sudden spike, gradual
 popularity shift, and an adversarial regime-flip. Full numbers +

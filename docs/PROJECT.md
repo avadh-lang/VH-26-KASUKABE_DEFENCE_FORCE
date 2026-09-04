@@ -205,12 +205,17 @@ demotes not evicts; single-tier fallback) · the headline claims
 | CACHE MIND vs GDSF | **−60 %** | ~24 → **~6 ms** |
 | CACHE MIND vs GDSF-tiered (same hardware) | **−18 %** | ~20 → **~6 ms** |
 
-Ablation contribution ranking (cost hit when removed): **tiering ≫ smart
-placement + prefetch ≈ autoscaler ≈ refresh ≫ bandit ≈ compression**. The
-bandit's numeric effect is small on Zipf traffic (GDSF is a strong heuristic) —
-it is kept because it makes the weighting adaptive with zero per-deployment
-tuning (the PS's "adaptive at runtime" requirement) and cannot do worse than a
-hand-picked vector. Wins on all 6 scenarios and both profiles.
+Ablation (`results/ABLATION_api.md`) — two capabilities carry the win:
+
+1. **Tiering**: −45 % cost vs single-tier GDSF; vs a *smart* single-tier engine
+   the raw cost is a wash but hit rate goes 0.80 → 0.99 and p95 19 ms → 6 ms.
+2. **Smart refresh**: serve-stale + proactive background refresh instead of
+   blocking refetch on every stale hit — 30–40 % of total cost.
+
+Autoscaler / bandit / prefetch / compression are within a few percent on these
+stationary Zipf workloads — kept for runtime adaptivity (the PS's requirement)
+and robustness under surges / selective admission / tight tiers. Wins on all 6
+scenarios and both profiles.
 
 ## 12. Likely jury questions
 

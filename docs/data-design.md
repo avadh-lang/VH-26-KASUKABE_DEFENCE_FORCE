@@ -20,6 +20,7 @@ Three data surfaces, each with a deliberate schema:
 | `gen_cost_usd` | float | USD | money to rebuild (metered API price, compute-seconds) → the $ half of "retrieval cost" | correlated with `gen_latency_ms`; expensive objects also cost real money |
 | `ttl_s` | float | s | freshness horizon → drives refresh-vs-evict | uniform per profile; `<=0` ⇒ ∞ (never staleness-driven) |
 | `volatility` | float | 0–1 | P(underlying data drifted) per unit of staleness → refresh **value** | uniform per profile; low for recsys embeddings, higher for API resources |
+| `compressible` | float | 0–1 | fraction of size recoverable by compression → the COMPRESS action | `Beta(2,2)` scaled per profile (api JSON compresses well ~0.75, recsys blobs poorly ~0.35) |
 | `tags` | tuple[str] | — | profile + `expensive`/`cheap` class, for slicing results | derived |
 
 Rationale for the shape (not the exact numbers — those are tunable in
@@ -59,12 +60,27 @@ with a per-scenario rate function `λ(t)`:
 | `steady` | nothing — stationary Zipf, constant λ |
 | `spike` | at t≈45 %, ~25 cold objects jump to the top ranks and λ×3 for ~15 % of the run, then relax |
 | `popularity_shift` | the rank→object permutation is continuously perturbed (≈`n/400` swaps per simulated second) |
-| `diurnal` | λ(t) sinusoidal, 0.35×–1.65× |
+| `diurnal` | λ(t) sinusoidal, 0.35×–1.65×, and the *active* universe contracts at low tide |
 | `cold_start` | λ ramps from 10 % to 100 % over the first 15 %; cache starts empty |
+| `regime_flip` | alternates every ~18 % of the run: an expensive-stable regime (cost/frequency weighting wins) and a cheap-churny high-rate regime (recency wins) — no fixed weight vector is good in both |
 
 A `Workload` also exposes `working_set_bytes` (Σ size of every distinct key
-requested) — the natural reference for sizing the cache (benchmarks use
-15 % of it).
+requested) — the reference for sizing L1 (benchmarks use 12 %; L2 = 4×L1,
+L3 = 12×L1).
+
+### Tiered cost model (`common.CostConfig`)
+
+| component | price / latency | basis |
+|---|---|---|
+| L1 RAM | $0.12 / GB-hr · 0.5 ms | managed in-memory (ElastiCache-class) |
+| L2 Redis-class | $0.030 / GB-hr · 4 ms | separate warm tier, ~4× cheaper |
+| L3 cold store | $0.004 / GB-hr · 28 ms | object store / NVMe, near-free |
+| origin regenerate | `gen_cost_usd` + `gen_latency_ms` | from the catalog |
+| user latency | $2 × 10⁻⁶ per request-ms | conversion/abandonment proxy |
+| promote / demote | $0.010 per GB moved | inter-tier data movement |
+
+One source of truth; identical for every policy, so the benchmark is
+apples-to-apples even though `CACHE MIND` and `*-tiered` use three tiers.
 
 ---
 
@@ -82,6 +98,13 @@ an EWMA (α = 0.02) of observed magnitudes:
 | `freq` | `log1p(freq) / log1p(freq_ref)` | `freq_ref` (EWMA) |
 | `cost` | `cost_ms_equiv / cost_ref_ms` | `cost_ref_ms` (EWMA) |
 | `size` | `size_bytes / size_ref_b` | `size_ref_b` (EWMA) |
+| `pred` | `p_soon · confidence` from the access predictor | — |
+
+**Access predictor** (`engine/predict.py`) — per key: EWMA of the inter-access
+gap + variance, and fast/slow hit-rate EWMAs. Yields `p_soon`, `trend`,
+`confidence`, `expected_hits(n_epochs)`. Drives the `pred` signal, the `E[hits]`
+term in the tier economics, and the PREFETCH list. A few floats per key,
+bounded to 40 k tracked keys.
 
 Online normalisation is what makes one weight vector portable across the `api`
 and `recsys` profiles despite their 15× size difference.

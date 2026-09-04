@@ -16,12 +16,30 @@ combined into one decision framework.
 | **Ghost / shadow lists** | Megiddo & Modha (ARC), *FAST*, 2003; Jiang & Zhang (LIRS), 2002 | recently-evicted keys kept for the autoscaler's payback test |
 | **Admission control w/ a sketch** | Einziger, Friedman, Manes (TinyLFU), 2017 | the idea of gating admission; we gate on *value*, not frequency |
 | **Sampled ("power of N") eviction** | Redis `maxmemory` policy, ~2015 | O(1) approximate eviction instead of a global scan |
+| **Multi-level / demotion caches** | Wong & Wilkes 2002; CDN edge/mid tiers; DRAM→NVMe→disk | the L1/L2/L3 hierarchy and demote-instead-of-evict |
+| **Prefetching / prediction** | classic prefetchers; ML admission (LRB, Song et al. 2020) | warm predicted-hot objects ahead of demand |
 
 ## What is ours
 
+### 0. Placement economics across tiers — the headline
+Multi-level caches exist, but their placement is almost always *positional*:
+new objects enter L1, and eviction from level *k* demotes to *k+1*. CACHE MIND
+places each object in the tier that **maximises its expected dollar value**:
+```
+serve_saving(o, tier) = max(gen_latency_ms − tier_latency, 0)·λ$  +  gen_cost_usd
+net_value(o, tier)    = E[hits over horizon] · serve_saving(o, tier)
+                        − tier_$per_GB_hr · size · horizon
+best_tier(o) = argmax_tier net_value   (evict if every tier is negative)
+```
+Because origin latency dwarfs inter-tier latency, an expensive object is worth
+holding even in cold L3 — but a cheap one that just fell out of L1 is *evicted*,
+not demoted. Our tiered baselines (`LRU-tiered`, `GDSF-tiered`) implement the
+positional approach for a controlled comparison; CACHE MIND beats them by
+13–28 % cost and ~⅔ p95 latency on the *same* hardware.
+
 ### 1. GDSF core + a *bounded* adaptive tilt — with a provable floor
 ```
-value(o) = L + w_core · GDSF_core(o) · (1 + tilt(o)),   tilt ∈ [-0.6, +0.6]
+value(o) = L + w_core · GDSF_core(o) · (1 + tilt(o)),   tilt ∈ ±0.8
 ```
 Existing adaptive caches either **switch whole policies** (ARC moves an
 LRU/LFU balance point) or **learn a policy from scratch** (RL-cache, LeCaR).
@@ -70,7 +88,16 @@ shrink iff fill < 60% ∧ evict_rate < 0.2% ∧ no ghost hits for 2 epochs
 A literal payback test on capacity, symmetric, bounded by a 3× ceiling. This
 is the PS's "scale only when the cost-benefit tradeoff justifies it".
 
-### 6. Fully online, zero training
+### 6. A cheap online access predictor feeding placement *and* prefetch
+Per key: EWMA of the inter-access gap + variance, and fast/slow rate EWMAs →
+`p_soon`, `trend`, `confidence`, `expected_hits(n)`. It is a handful of floats
+per key, no training, and it feeds three things at once: the `pred` signal in
+the value score, the `E[hits]` term in the tier economics, and the PREFETCH
+list (predicted-hot non-resident keys, warmed into L2 before they're asked
+for). LRB and similar use a trained GBM for admission only; ours is untrained
+and drives placement, prefetch and refresh together.
+
+### 7. Fully online, zero training
 No offline dataset, no pre-trained model. `ScoreRefs` EWMA-normalises every
 signal from the live stream; the bandit starts uninformed and explores. It
 runs correctly from a cold cache — which is what makes the live demo real.
@@ -79,15 +106,20 @@ runs correctly from a cold cache — which is what makes the live demo real.
 
 ## Implementation originality
 
-- **All six policies** (LRU, LFU, GDS, GDSF, CACHE MIND, plus the CM-fixed
-  ablation) are implemented from scratch against a single 190-line
-  `CachePolicy` interface. No `cachetools`, no `functools.lru_cache`, no RL
-  library. ~1300 lines total.
-- The **workload generator, cost model, SimDriver and SQLite result store**
-  are ours — the benchmark is not a wrapper around an existing harness.
-- The **ablation is built in**: `CM-fixed` (scoring only) vs `CACHE MIND` (full)
-  isolates the two contributions — the value model and the adaptation — and
-  both independently beat GDSF.
+- **All eight policies** — LRU, LFU, GDS, GDSF, LRU-tiered, GDSF-tiered,
+  CACHE MIND, plus seven ablation variants — are implemented from scratch
+  against a single `CachePolicy` interface. No `cachetools`, no
+  `functools.lru_cache`, no RL library. `TieredStore` is ~120 lines, shared by
+  the engine and the tiered baselines.
+- The **workload generator, tiered cost model, SimDriver and SQLite result
+  store** are ours — the benchmark is not a wrapper around an existing harness.
+- **The "simulate every decision" idea, made tractable**: the live simulator
+  runs the baseline policies *in parallel* on the same stream, so the dashboard
+  shows real counterfactuals ("here's what LRU would have cost this epoch")
+  instead of an intractable per-object lookahead.
+- **Ablations are built in**: `CM-notier`, `CM-noprefetch`, `CM-nobandit`,
+  `CM-noautoscale`, `CM-norefresh`, `CM-nocompress`, `CM-fixed` each isolate one
+  capability's contribution.
 
 ## What we would cite as related work in a report
 
