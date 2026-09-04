@@ -17,21 +17,23 @@ from workload import generate
 from benchmark.driver import SimDriver, RunResult
 
 from baselines import REGISTRY as BASELINE_REGISTRY
-from engine import AACMSCache
+from engine import CacheMind
 
-POLICY_NAMES = ("LRU", "LFU", "GDS", "GDSF", "AACMS-fixed", "AACMS")
+POLICY_NAMES = ("LRU", "LFU", "GDSF", "LRU-tiered", "GDSF-tiered", "CM-fixed", "CACHE MIND")
 RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
 
 
-# AACMS ablation variants: which engine feature is switched OFF
+# CACHE MIND ablation variants: which capability is switched OFF
 ABLATIONS = {
-    "AACMS":            dict(),                                    # full engine
-    "AACMS-fixed":      dict(autoscale=False, adapt_weights=False,  # value model only
-                            admission=False, refresh=False),
-    "AACMS-noadmit":    dict(admission=False),
-    "AACMS-nobandit":   dict(adapt_weights=False),
-    "AACMS-noautoscale": dict(autoscale=False),
-    "AACMS-norefresh":  dict(refresh=False),
+    "CACHE MIND":      dict(),                                     # full engine
+    "CM-fixed":        dict(autoscale=False, adapt_weights=False,  # value model + tiers only
+                           admission=False, refresh=False, prefetch=False, compress=False),
+    "CM-notier":       dict(tiering=False),                        # single L1 tier
+    "CM-noprefetch":   dict(prefetch=False),
+    "CM-nobandit":     dict(adapt_weights=False),
+    "CM-noautoscale":  dict(autoscale=False),
+    "CM-norefresh":    dict(refresh=False),
+    "CM-nocompress":   dict(compress=False),
 }
 
 
@@ -39,7 +41,7 @@ def build_policy(name: str, capacity_bytes: int, cost_cfg: CostConfig, epoch_sec
     if name in BASELINE_REGISTRY:
         return BASELINE_REGISTRY[name](capacity_bytes)
     if name in ABLATIONS:
-        p = AACMSCache(capacity_bytes, cost_cfg, epoch_seconds=epoch_seconds, **ABLATIONS[name])
+        p = CacheMind(capacity_bytes, cost_cfg, epoch_seconds=epoch_seconds, **ABLATIONS[name])
         p.name = name
         return p
     raise KeyError(f"unknown policy {name!r}")
