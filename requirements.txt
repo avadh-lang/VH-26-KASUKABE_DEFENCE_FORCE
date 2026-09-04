@@ -1,0 +1,10 @@
+# AACMS — Adaptive, Application-Aware Cache Management System
+# Python 3.11+  (tested on 3.14)
+
+numpy>=2.1
+fastapi>=0.115
+uvicorn[standard]>=0.32
+pydantic>=2.9
+sse-starlette>=2.1
+matplotlib>=3.9
+rich>=13.7
