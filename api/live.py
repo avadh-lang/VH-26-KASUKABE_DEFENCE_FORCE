@@ -117,10 +117,8 @@ class LiveSim:
         self.epoch_seconds = epoch_seconds
         self.base_rate = base_rate
         self.duration_s = duration_s
-        # Demo cost model: cache RAM priced as a managed, HA-replicated tier
-        # (ElastiCache-class list price x ~3 for replication + provisioned
-        # headroom), and a finer 4 MiB scaling step so the autoscaler's moves
-        # are visible on screen.
+        # Demo cost model: cache RAM as a managed, HA-replicated tier (list price
+        # x ~3 for replication + provisioned headroom), finer 4 MiB scaling step.
         self.cfg = CostConfig(mem_usd_per_gb_hour=0.35, scale_step_bytes=4 * 1024 * 1024)
 
         self.catalog = build_catalog(profile, seed=seed)
@@ -182,7 +180,15 @@ class LiveSim:
             cur = self.order.copy()
             cur[: len(self._spike_targets)] = self._spike_targets
 
-        ranks = self._rng.choice(self.n, size=k, p=self.weights)
+        # diurnal: at low tide fewer *distinct* objects are in demand (not just a
+        # lower rate), so the live working set contracts — this is what lets the
+        # autoscaler release capacity on screen.
+        active_n = self.n
+        if self.scenario == "diurnal":
+            frac = 0.15 + 0.85 * min(1.0, rate / (self.base_rate * 1.5))
+            active_n = max(200, int(self.n * frac))
+        w = self.weights[:active_n]
+        ranks = self._rng.choice(active_n, size=k, p=w / w.sum())
         idxs = cur[ranks]
         for j, ci in enumerate(idxs):
             t = self.t + (j / max(k, 1)) * self.epoch_seconds
