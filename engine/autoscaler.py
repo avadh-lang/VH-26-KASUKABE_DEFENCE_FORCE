@@ -93,21 +93,27 @@ class Autoscaler:
             benefit = capturable * self._ghost_value
             evict_rate = evictions / max(requests, 1)
 
-            if benefit > grow_cost * self.grow_margin and capacity + step <= self.max_bytes:
+            # value we'd forgo by releasing one step of capacity: the ghost
+            # benefit we're currently getting, prorated to a step's worth of RAM.
+            forgone = benefit
+            step_rent = grow_cost                      # $ saved per epoch by releasing a step
+
+            if benefit > step_rent * self.grow_margin and capacity + step <= self.max_bytes:
                 new_cap = capacity + step
                 action = "grow"
                 reason = (f"ghost hits={self._ghost_hits} worth ${self._ghost_value:.4f}; "
-                          f"+{step // 1024}KB pays back {benefit / max(grow_cost,1e-12):.1f}x its ${grow_cost:.5f} cost")
+                          f"+{step // 1024}KB pays back {benefit / max(step_rent,1e-12):.1f}x its ${step_rent:.5f} cost")
                 self._cool = self.cooldown
                 self._loose_streak = 0
-            elif evict_rate < 0.003 and self._ghost_hits == 0 and cold_bytes >= step:
+            elif (cold_bytes >= step and evict_rate < 0.006
+                  and forgone < step_rent * 0.5):
                 self._loose_streak += 1
                 if self._loose_streak >= self.cooldown and capacity - step >= self.min_bytes:
                     new_cap = capacity - step
                     action = "shrink"
-                    reason = (f"{cold_bytes // 1024}KB cold, evict-rate={evict_rate:.3%}, "
-                              f"no ghost hits for {self._loose_streak} epochs; release "
-                              f"{step // 1024}KB, save ${grow_cost:.5f}/epoch")
+                    reason = (f"{cold_bytes // 1024}KB idle {self._loose_streak} epochs, "
+                              f"forgone benefit ${forgone:.5f} < rent ${step_rent:.5f}; "
+                              f"release {step // 1024}KB")
                     self._cool = self.cooldown
                     self._loose_streak = 0
             else:
