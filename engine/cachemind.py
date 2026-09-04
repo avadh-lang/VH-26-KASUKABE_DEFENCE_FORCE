@@ -31,13 +31,17 @@ from engine.scoring import (ScoreRefs, best_tier, net_value_at_tier, refresh_pri
                             serve_saving, value)
 from common import TieredStore
 
+# six "personalities" spanning the three value families (GDSF · heuristic · ML).
+# The bandit picks one per epoch. keys: gdsf | rec | fresh | size | ml
+# GDSF term is ~[0,40]; the heuristic/ML terms are ~[0,1] and act as
+# refinements. A personality leans on one family without dropping the others.
 WEIGHT_ARMS: dict[str, dict[str, float]] = {
-    "balanced":        {"core": 1.0, "rec": 0.6, "freq": 0.6, "cost": 0.7, "size": 0.6, "pred": 0.6},
-    "cost_first":      {"core": 1.0, "rec": 0.1, "freq": 0.2, "cost": 2.2, "size": 0.2, "pred": 0.4},
-    "recency_first":   {"core": 1.0, "rec": 2.4, "freq": 0.1, "cost": 0.3, "size": 0.4, "pred": 0.6},
-    "frequency_first": {"core": 1.0, "rec": 0.1, "freq": 2.4, "cost": 0.3, "size": 0.2, "pred": 0.4},
-    "predict_first":   {"core": 1.0, "rec": 0.5, "freq": 0.4, "cost": 0.5, "size": 0.3, "pred": 2.4},
-    "memory_saver":    {"core": 1.0, "rec": 0.4, "freq": 0.4, "cost": 0.7, "size": 2.4, "pred": 0.4},
+    "balanced":   {"gdsf": 1.0, "rec": 2.0, "fresh": 1.5, "size": 1.5, "ml": 3.0},
+    "proven":     {"gdsf": 1.0, "rec": 0.6, "fresh": 0.5, "size": 0.8, "ml": 0.8},   # ≈ classical GDSF
+    "predictive": {"gdsf": 1.0, "rec": 1.5, "fresh": 1.0, "size": 1.0, "ml": 8.0},   # ML forecast leads
+    "recency":    {"gdsf": 1.0, "rec": 7.0, "fresh": 1.0, "size": 1.5, "ml": 2.0},   # recency heuristic leads
+    "freshness":  {"gdsf": 1.0, "rec": 1.5, "fresh": 6.0, "size": 1.0, "ml": 2.0},   # protect fresh data
+    "lean":       {"gdsf": 1.0, "rec": 1.0, "fresh": 1.0, "size": 6.0, "ml": 1.5},   # size-averse
 }
 
 _HORIZON_EPOCHS = 6.0
@@ -88,7 +92,7 @@ class CacheMind(CachePolicy):
         self.store = TieredStore(caps)
         self.predictor = AccessPredictor()
 
-        self._L = 0.0
+        self._L = 0.0  # retained for signature compat; aging is now inside the gdsf term
         self._evictions = self._refreshes = 0
         self._promotions = self._demotions = self._prefetches = 0
         self._move_bytes = 0
@@ -214,16 +218,17 @@ class CacheMind(CachePolicy):
 
         bt, nv = best_tier(hypo, eh, horizon, self.cfg)
         if not self.tiering:
-            bt = L1 if (nv > 0 or not self.admission) else 0
+            bt = L1
         if bt == 0:
             self._note("evict", spec.key, "negative net value at every tier — don't cache")
             return False
 
-        hv = self._val(hypo, now)
-        # place at the best tier that will take it without displacing anything
-        # more valuable; otherwise settle for a colder tier.
+        # admission control (optional): a lukewarm newcomer may not displace
+        # a genuinely hotter L1 occupant — it settles for a colder tier instead.
+        # Otherwise admit at the best tier and let eviction sort it out (GDSF-style).
+        hv = self._val(hypo, now) if self.admission else None
         for t in range(bt, L3 + 1):
-            floor = hv if (self.admission and t == bt) else None
+            floor = hv if (t == bt and self.admission and self.tiering) else None
             if self._make_room(t, hypo.size_bytes, now, min_value=floor):
                 self.store.place(hypo, t)
                 self._last_seen[spec.key] = now
@@ -337,8 +342,8 @@ class CacheMind(CachePolicy):
         return self.predictor.expected_hits(key, _HORIZON_EPOCHS)
 
     def _val(self, e: CacheEntry, now: float) -> float:
-        pred = self.predictor.p_soon(e.key, now) * self.predictor.confidence(e.key)
-        return value(e, now, self.w, self.refs, self._L, self.cfg.latency_usd_per_ms, pred)
+        ml = self.predictor.p_soon(e.key, now) * self.predictor.confidence(e.key)
+        return value(e, now, self.w, self.refs, self._L, self.cfg.latency_usd_per_ms, ml)
 
     def _sample(self, tier: int, k: int) -> list[CacheEntry]:
         es = self.store.entries(tier)
@@ -403,8 +408,6 @@ class CacheMind(CachePolicy):
             return
         self._evictions += 1
         self._ep_evict += 1
-        v = self._val(e, now)
-        self._L = max(self._L, v)
         regen = e.spec.gen_cost_usd + self.cfg.latency_usd_per_ms * e.spec.gen_latency_ms
         self.ghost.add(key, e.full_size_bytes, regen)
 
@@ -462,18 +465,44 @@ class CacheMind(CachePolicy):
         return out
 
     def _autoscale(self, now: float) -> None:
+        # --- L1: cost-benefit ghost-list ROI test -----------------------
         cold_cut = now - 2.0 * self.epoch_seconds
         cold = sum(e.size_bytes for e in self.store.entries(L1) if e.last_access < cold_cut)
         new_cap, action, reason = self.scaler.decide(
             capacity=self.store.cap(L1), used=self.store.used(L1),
             evictions=self._ep_evict, requests=self._ep_req, cold_bytes=cold)
         if new_cap != self.store.cap(L1):
-            if new_cap < self.store.cap(L1):
-                self.store.set_cap(L1, new_cap)
+            self.store.set_cap(L1, new_cap)
+            if action == "shrink":
                 self._make_room(L1, 0, now)
-            else:
-                self.store.set_cap(L1, new_cap)
             self._note(f"scale_{action}", "L1", reason)
+
+        if not self.tiering:
+            return
+
+        # --- L2 / L3: demand-driven, bounded to multiples of the live L1 -
+        l1 = self.store.cap(L1)
+        step = self.cfg.scale_step_bytes
+        bounds = {L2: (2 * l1, 10 * l1), L3: (3 * l1, 30 * l1)}
+        tier_hits = {L2: self._ep_l2, L3: self._ep_l3}
+        for t in (L2, L3):
+            cap, used = self.store.cap(t), self.store.used(t)
+            lo, hi = bounds[t]
+            fill = used / max(cap, 1)
+            pulls_weight = tier_hits[t] / max(self._ep_req, 1) > 0.02
+            if fill > 0.9 and pulls_weight and cap + step <= hi:
+                self.store.set_cap(t, cap + step)
+                self._note("scale_grow", f"L{t}",
+                           f"{fill:.0%} full, {tier_hits[t]} hits this epoch — +{step//1024}KB")
+            elif fill < 0.5 and cap - step >= lo:
+                self._streak = getattr(self, "_streak", {})
+                self._streak[t] = self._streak.get(t, 0) + 1
+                if self._streak[t] >= 3:
+                    self.store.set_cap(t, cap - step)
+                    self._streak[t] = 0
+                    self._note("scale_shrink", f"L{t}", f"only {fill:.0%} used — release {step//1024}KB")
+            else:
+                getattr(self, "_streak", {}).pop(t, None)
 
     def _prefetch_landing_tier(self) -> int:
         return L2

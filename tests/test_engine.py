@@ -87,9 +87,9 @@ def test_bandit_learns_to_prefer_the_rewarding_arm():
              ("rate", "entropy", "hit_trend", "miss_cost", "pressure", "evict_rate", "ghost_rate")}
     for _ in range(60):
         ctrl.select(feats)
-        ctrl.learn(1.0 if ctrl.active.name == "cost_first" else 0.0)
+        ctrl.learn(1.0 if ctrl.active.name == "predictive" else 0.0)
     pulls = ctrl.snapshot()["pulls"]
-    assert pulls["cost_first"] == max(pulls.values())
+    assert pulls["predictive"] == max(pulls.values())
 
 
 # ---- autoscaler ------------------------------------------------------- #

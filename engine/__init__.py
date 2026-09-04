@@ -4,7 +4,6 @@ CACHE MIND engine — the decision layer above a multi-level cache.
     CacheMind(capacity_bytes, cost_cfg, ...)   implements common.CachePolicy
 
 Pieces:
-  tiers.py       L1/L2/L3 store — placement, byte accounting, promote/demote
   predict.py     per-object access predictor (p_soon, trend, confidence, ETA)
   scoring.py     keep-worthiness value + net-value-per-tier economics
   bandit.py      LinUCB contextual bandit — adapts the score weights at runtime
