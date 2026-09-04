@@ -35,7 +35,13 @@ class Workload:
         return sum(self.catalog[k].size_bytes for k in seen)
 
 
-SCENARIOS = ("steady", "spike", "popularity_shift", "diurnal", "cold_start")
+SCENARIOS = ("steady", "spike", "popularity_shift", "diurnal", "cold_start", "regime_flip")
+
+# regime_flip alternates every _FLIP_PERIOD of the run between:
+#   A  expensive, stable hot set, moderate rate   (cost/frequency weighting wins)
+#   B  cheap, fast-churning hot set, high rate     (recency weighting wins)
+# no single fixed weight vector is good in both — this is where the bandit earns it.
+_FLIP_PERIOD = 0.18
 
 # tuned so a run is a few hundred k requests — enough signal, fast to simulate
 _DEFAULTS = dict(duration_s=1200.0, base_rate=350.0, zipf_alpha=1.05, seed=0)
@@ -56,6 +62,9 @@ def _rate(scenario: str, t: float, dur: float, base: float) -> float:
     if scenario == "cold_start":
         ramp = 0.15 * dur
         return base * min(1.0, 0.1 + 0.9 * t / ramp) if t < ramp else base
+    if scenario == "regime_flip":
+        phase_b = int(t / (_FLIP_PERIOD * dur)) % 2 == 1
+        return base * (2.5 if phase_b else 1.0)
     return base  # steady, popularity_shift
 
 
@@ -92,6 +101,15 @@ def generate(
         cold = order[int(0.7 * n):]
         spike_targets = rng.choice(cold, size=min(25, len(cold)), replace=False)
 
+    # regime_flip: two disjoint hot sets keyed to object cost
+    order_exp = order_cheap = None
+    if scenario == "regime_flip":
+        cost = np.array([catalog[keys[i]].gen_cost_usd + catalog[keys[i]].gen_latency_ms * 1e-5
+                         for i in range(n)])
+        by_cost = np.argsort(-cost)               # most expensive first
+        order_exp = by_cost.copy()
+        order_cheap = by_cost[::-1].copy()        # cheapest first
+
     requests: list[tuple[float, str]] = []
     shift_per_bin = max(1, n // 400)   # popularity_shift: swaps applied each 1s bin
 
@@ -106,6 +124,9 @@ def generate(
         if scenario == "spike" and 0.45 * dur <= t_mid < 0.62 * dur:
             cur_order = order.copy()
             cur_order[:len(spike_targets)] = spike_targets
+        elif scenario == "regime_flip":
+            phase_b = int(t_mid / (_FLIP_PERIOD * dur)) % 2 == 1
+            cur_order = order_cheap if phase_b else order_exp
 
         idx_by_rank = cur_order
         chosen_ranks = rng.choice(ranks, size=k, p=weights)
@@ -118,6 +139,10 @@ def generate(
             for _ in range(shift_per_bin):
                 a, b = rng.integers(0, n, size=2)
                 order[a], order[b] = order[b], order[a]
+        elif scenario == "regime_flip" and int(t_mid / (_FLIP_PERIOD * dur)) % 2 == 1:
+            for _ in range(max(3, n // 120)):        # phase B churns fast
+                a, b = rng.integers(0, n, size=2)
+                order_cheap[a], order_cheap[b] = order_cheap[b], order_cheap[a]
 
     requests.sort(key=lambda r: r[0])
     return Workload(
