@@ -1,61 +1,113 @@
-# AACMS — Adaptive, Application-Aware Cache Management System
+# CACHE MIND — an AI brain that sits above your cache
 
 **VH-26 · KASUKABE DEFENCE FORCE** — VCET Hackathon 2026
-Domain: Application Scaling · PS: Adaptive, Application-Aware Cache Management System
+Domain: *Application Scaling* · PS: *Adaptive, Application-Aware Cache Management System*
 
-Traditional caches (LRU/LFU) only look at *when* / *how often* an object was
-used. AACMS scores every object by a **multi-factor value model** — access
-pattern, size, and the real cost (latency + $) to regenerate it — and adapts
-that model **at runtime** with a contextual bandit. It also decides, on a
-cost-benefit basis, **when growing the cache is actually worth it**.
+LRU and LFU rank cached objects by **access pattern alone**. They are blind to
+**size** and to the real **latency + $ cost** to regenerate an object from the
+origin. At scale that forces a lose-lose choice: over-provision expensive RAM,
+or under-provision and thrash the backend on every traffic surge.
 
-## Results (vs. the strongest conventional baseline, GDSF)
+**CACHE MIND** turns the cache from a passive store into an autonomous
+decision-maker. Every epoch it **observes → predicts → scores → decides →
+executes → learns**, choosing per object between:
 
-| Scenario | AACMS (fixed capacity) | AACMS (+ autoscaler) |
-|---|---|---|
-| steady load        | **-12% cost** | **-52% cost** |
-| sudden spike        | **-11% cost** | **-56% cost** |
-| popularity shift    | **-9% cost**  | **-53% cost** |
+> **KEEP · PROMOTE · DEMOTE · PREFETCH · REFRESH · COMPRESS · EVICT · SCALE**
 
-Same engine, no re-tuning, wins on both the read-heavy **api** profile and the
-compute-heavy **recsys** profile. Full numbers: `python -m benchmark.runner`.
+across a **multi-level cache** — L1 (RAM, fast, dear), L2 (Redis-class, warm,
+cheap), L3 (cold store, slow, near-free). An object that falls out of L1
+isn't evicted into a 900 ms / $0.005 origin miss — it's **demoted** to a 4 ms
+warm hit.
 
-## Architecture
+## Results — `api` profile, L1 = 12 % of working set, identical cost model
 
-```
-workload/   traffic generator — 2 app profiles, 5 scenarios (spike, shift, diurnal, …)
-   │  (timestamp, ObjectSpec) stream
-   ▼
-baselines/  LRU · LFU · GDS · GDSF          engine/  AACMS
-                     │                          ├─ scoring.py     multi-factor value score
-                     │                          ├─ bandit.py      LinUCB — adapts weights / epoch
-                     ▼                          ├─ regime.py      workload-regime label
-benchmark/  SimDriver — one clock, one        ├─ autoscaler.py  cost-benefit + ghost list
-            cost model, per-epoch snapshots   └─ aacms.py       admission · eviction · refresh
-   │
-   ▼
-api/  FastAPI + SSE  ──►  dashboard/  React live view (hit rate, $ saved, decisions)
-```
+| policy | hit rate | p95 latency | cost $ | vs GDSF |
+|---|---|---|---|---|
+| LRU | 0.77 | 426 ms | 148.1 | −120 % |
+| LFU | 0.81 | 340 ms | 128.4 | −91 % |
+| GDSF (best single-tier classical) | 0.77 | 23 ms | 67.3 | — |
+| **GDSF-tiered** (same L1/L2/L3, dumb placement) | 0.99 | 14 ms | 39.4 | **+42 %** |
+| **CACHE MIND** | 0.99 | **6 ms** | **19.8** | **+71 %** |
 
-Every module depends only on `common/interfaces.py` (the shared contract), so
-the four workstreams build in parallel.
+(spike / popularity-shift / regime-flip: **−74 / −73 / −82 %** vs GDSF.)
 
-## Run it
+Two capabilities carry the win — the ablation (`results/ABLATION_api.md`) shows
+each roughly **doubles total cost when removed**:
+
+1. **Tiering** — overflow is demoted to a warm L2/L3 hit instead of evicted into
+   a 900 ms origin miss.
+2. **Smart refresh** — a stale hit is served immediately and the object is
+   **refreshed in the background** next epoch, instead of a blocking refetch.
+
+On the *same* L1/L2/L3 hardware, CACHE MIND still beats `GDSF-tiered` by **~50 %
+cost** and keeps p95 latency at a flat **6 ms** (vs ~14–22 ms) by placing the
+genuinely hot objects in fast L1. Cheapest at **every** L1 size (5–40 %).
+
+The bandit, autoscaler, prefetch and compression are a few percent each on these
+Zipf workloads — kept for runtime adaptivity and robustness under surges.
+
+Beats every baseline on **four** scenarios: steady, sudden spike, gradual
+popularity shift, and an adversarial regime-flip. Full numbers +
+per-feature ablation: `results/REPORT_api.md`, `results/ABLATION_api.md`.
+
+## Algorithm — hybrid
+
+- **3-family value model**: `value = w_gdsf·GDSF + w_rec·REC + w_fresh·FRESH −
+  w_size·SIZE + w_ml·ML`. GDSF (`freq · cost / size`, online-normalised) carries
+  the magnitude; recency/freshness/size are heuristic refinements; ML is the
+  learned access forecast. The bandit's `proven` arm ≈ classical GDSF — a
+  provable safety floor.
+- **Economic tier placement**: `net_value(o, tier) = expected_hits ·
+  serve_saving(o, tier) − hold_cost(o, tier)`. Place each object where it earns
+  the most; evict only when every tier loses money.
+- **ML**: a LinUCB contextual bandit re-weights the score each epoch; a
+  per-object access predictor (`p_soon`, `trend`, `confidence`) drives prefetch.
+- **Cost-benefit autoscaler** with a ghost list: grow/shrink L1 only when the
+  marginal miss saving beats the marginal RAM.
+
+## Quick start
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python -m benchmark.runner --profile api --scenarios steady spike popularity_shift
+
+pytest                                         # 32 tests
+python -m benchmark.report --run --profile api # tables + charts → results/
+python -m benchmark.studies ablation           # per-feature contribution
+bash scripts/dev.sh                             # live dashboard → http://localhost:5173
 ```
+
+## Architecture
+
+```
+workload/        (t, ObjectSpec) stream — 2 profiles, 6 scenarios
+   │
+   ▼
+benchmark/  SimDriver — one clock, one cost model, per-epoch snapshots → SQLite
+   │                              │
+   ▼ drives                       ▼ drives
+baselines/  LRU LFU GDS GDSF      engine/  CACHE MIND
+            LRU-tiered            ├─ tiers.py     L1/L2/L3 store  (in common/tierstore.py)
+            GDSF-tiered           ├─ predict.py   per-object access forecaster
+                                  ├─ scoring.py   keep-worthiness + net-value-per-tier
+                                  ├─ bandit.py    LinUCB weight adaptation
+                                  ├─ autoscaler.py ghost-list cost-benefit
+                                  └─ cachemind.py the 11-step epoch loop
+   │
+   ▼
+api/  FastAPI + SSE live simulator  ──►  dashboard/  React — tiers, cost, latency, decisions
+```
+
+Every module imports only `common/interfaces.py`. Deep dives:
+[`docs/PROJECT.md`](docs/PROJECT.md) · [`docs/architecture.md`](docs/architecture.md) ·
+[`docs/originality.md`](docs/originality.md) · [`docs/data-design.md`](docs/data-design.md) ·
+[`docs/demo-script.md`](docs/demo-script.md)
 
 ## Team
 
-| Member | GitHub | Branch | Owns |
-|---|---|---|---|
-| Avadh Mehta | `avadh-lang` | `feat/avadh` | `engine/`, `common/`, integration |
-| Priti Kangne | `pritikangne266-dev` | `feat/priti` | `workload/`, `baselines/` |
-| Prathamesh | `Prathamesh-2803` | `feat/prathamesh` | `benchmark/` |
-| Sahil Kadam | `SahilKadam-dev` | `feat/sahil` | `api/`, `dashboard/` |
-
-Each member commits only inside their own folder(s) on their own branch; `main`
-is integrated hourly by PR and always stays demo-ready.
+| Member | GitHub | Owns |
+|---|---|---|
+| Avadh Mehta | `avadh-lang` | `engine/`, `common/`, `tests/`, docs, integration |
+| Priti Kangne | `pritikangne266-dev` | `workload/`, `baselines/` |
+| Prathamesh | `Prathamesh-2803` | `benchmark/` |
+| Sahil Kadam | `SahilKadam-dev` | `api/`, `dashboard/` |

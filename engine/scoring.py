@@ -1,23 +1,28 @@
 """
-Multi-factor value score.
+CACHE MIND value model — an explicit three-family hybrid.
 
-    value(entry) = L
-                 + w_core * core        (GreedyDual-Size-Frequency term, log-scaled)
-                 + w_rec  * recency      modifier   in [0,1]
-                 + w_freq * frequency    modifier   in [0,1]
-                 + w_cost * retrieval $  modifier   in [0,1]
-                 - w_size * size penalty            in [0,1]
+1. **How keep-worthy is this object?**  (ranking — who to demote/evict first)
 
-`core` carries the *magnitude* of "how much do we lose by dropping this"
-(freq * retrieval-cost / size, exactly the GDSF shape) so at w = {core:1}
-AACMS reduces to GDSF and can only improve from there. The [0,1] modifiers
-let the bandit re-shape the ranking for the current regime (favour recency
-during a popularity shift, favour size under memory pressure, ...) without
-ever losing the cost/size backbone.
+       value(o) = L
+                + w_gdsf  · GDSF(o)     ← proven cost-aware heuristic (Cherkasova '98)
+                + w_rec   · RECENCY(o)  ┐
+                + w_fresh · FRESH(o)    ├ hand-designed heuristics GDSF ignores
+                − w_size  · SIZE(o)     ┘
+                + w_ml    · ML(o)       ← learned: predicted future access value
 
-`L` is the GreedyDual inflation term carried by the cache (ages everything
-down over time). All reference magnitudes adapt online via `ScoreRefs`, so
-one weight vector works on both the "api" and "recsys" profiles.
+   No single family is structurally dominant — the six weights `w_*` are chosen
+   every epoch by a LinUCB contextual bandit. Pick the "proven" personality and
+   `value ≈ GDSF` (a safety floor you can fall back to); pick "predictive" and
+   the forecast leads. GDSF is our *foundation and our benchmark*, not the whole
+   model.
+
+2. **Where should it live?**  (placement — L1 / L2 / L3 / evict)
+
+       net_value(o, tier) = E[hits] · serve_saving(o, tier) − hold_cost(o, tier)
+
+   `E[hits]` is the ML forecast; `serve_saving` is the cost heuristic (latency +
+   $ avoided by a warm hit); `hold_cost` is that tier's byte price. Same hybrid,
+   applied to placement instead of ranking.
 """
 
 from __future__ import annotations
@@ -25,20 +30,25 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from common import CacheEntry, ObjectSpec
+from common import CacheEntry, CostConfig, ObjectSpec, L1, L2, L3
 
-WEIGHT_KEYS = ("core", "rec", "freq", "cost", "size")
+WEIGHT_KEYS = ("gdsf", "rec", "fresh", "size", "ml")
+FAMILY = {"gdsf": "GDSF heuristic", "rec": "heuristic", "fresh": "heuristic",
+          "size": "heuristic", "ml": "machine-learned"}
 
 
 def _unit(x: float) -> float:
-    """Monotonic squash into [0, 1)."""
     return x / (1.0 + x) if x > 0.0 else 0.0
 
 
+def _softcap(x: float, k: float) -> float:
+    """Monotone, ~linear near 0, saturates toward k for large x."""
+    return x / (1.0 + x / k) if x > 0.0 else 0.0
+
+
 def cost_ms_equiv(spec: ObjectSpec, latency_usd_per_ms: float) -> float:
-    """Retrieval latency + money cost, expressed as one 'ms-equivalent' number."""
-    money_as_ms = spec.gen_cost_usd / max(latency_usd_per_ms, 1e-12)
-    return spec.gen_latency_ms + money_as_ms
+    """Retrieval latency + money cost as one 'ms-equivalent' number."""
+    return spec.gen_latency_ms + spec.gen_cost_usd / max(latency_usd_per_ms, 1e-12)
 
 
 @dataclass(slots=True)
@@ -46,8 +56,8 @@ class ScoreRefs:
     freq_ref: float = 4.0
     cost_ref_ms: float = 300.0
     size_ref_b: float = 50_000.0
-    core_ref: float = 0.05          # typical freq*cms/size_kb
-    tau_s: float = 120.0            # recency decay horizon (seconds)
+    core_ref: float = 0.05
+    tau_s: float = 120.0
     _alpha: float = 0.02
 
     def observe(self, spec: ObjectSpec, freq: int, cost_ms: float) -> None:
@@ -55,7 +65,10 @@ class ScoreRefs:
         self.freq_ref += a * (max(freq, 1) - self.freq_ref)
         self.cost_ref_ms += a * (cost_ms - self.cost_ref_ms)
         self.size_ref_b += a * (spec.size_bytes - self.size_ref_b)
-        core = max(freq, 1) * cost_ms / max(spec.size_bytes / 1024.0, 1e-6)
+        # cost-per-byte only (no frequency) — so `gdsf_raw = freq · cost/size /
+        # core_ref` keeps its full magnitude spread; a freq-weighted normaliser
+        # would collapse it toward 1.
+        core = cost_ms / max(spec.size_bytes / 1024.0, 1e-6)
         self.core_ref += a * (core - self.core_ref)
 
     def adapt_tau(self, mean_interarrival_s: float, reuse_gap_s: float) -> None:
@@ -63,68 +76,109 @@ class ScoreRefs:
         self.tau_s += 0.1 * (target - self.tau_s)
 
 
-def signals(entry: CacheEntry, now: float, refs: ScoreRefs, latency_usd_per_ms: float) -> dict[str, float]:
+def signals(entry: CacheEntry, now: float, refs: ScoreRefs, latency_usd_per_ms: float,
+            ml: float = 0.0) -> dict[str, float]:
+    """Every term normalised to roughly [0, 3] (GDSF) or [0, 1] (the rest)."""
     cms = cost_ms_equiv(entry.spec, latency_usd_per_ms)
     idle = max(now - entry.last_access, 0.0)
-    size_kb = max(entry.size_bytes / 1024.0, 1e-6)
-    core_raw = entry.freq * cms / size_kb
-    x = core_raw / max(refs.core_ref, 1e-9)
+    size_kb = max(entry.full_size_bytes / 1024.0, 1e-6)
+
+    recency = math.exp(-idle / max(refs.tau_s, 1.0))
+
+    # --- GDSF family: freq · retrieval_cost / size, normalised by its running
+    # mean and gently aged by idleness (GDS uses a rising inflation term for the
+    # same effect — an object nobody touches must eventually sink).
+    gdsf_raw = entry.freq * cms / size_kb / max(refs.core_ref, 1e-9)
+    aging = 0.25 + 0.75 * math.exp(-idle / (3.0 * max(refs.tau_s, 1.0)))
+
+    # --- heuristic family: things GDSF is blind to
+    freshness = 1.0 - min(entry.staleness(now), 1.0)          # near TTL ⇒ worth less as-is
+    size_pen = _unit(entry.full_size_bytes / max(refs.size_ref_b, 1.0))
+
     return {
-        # GDSF magnitude term, normalised, gently soft-capped (~saturates near 25).
-        # keeps the full strength of the cost/size/frequency preference.
-        "core": x / (1.0 + x / 25.0),
-        # bounded [0,1] modifiers that *tilt* the core value for the current regime
-        "rec": math.exp(-idle / max(refs.tau_s, 1.0)),
-        "freq": _unit(math.log1p(entry.freq) / math.log1p(max(refs.freq_ref, 1.5))),
-        "cost": _unit(cms / max(refs.cost_ref_ms, 1e-6)),
-        "size": _unit(entry.size_bytes / max(refs.size_ref_b, 1.0)),
+        # left uncapped so it keeps the strong magnitude ordering that makes
+        # GDSF good; the [0,1] heuristic/ML terms are refinements on top.
+        "gdsf": gdsf_raw * aging,
+        "rec": recency,
+        "fresh": freshness,
+        "size": size_pen,
+        "ml": max(0.0, min(1.0, ml)),
     }
 
 
-_TILT_BASE = 0.4       # modifier value treated as "neutral"
-_TILT_GAIN = 0.6       # max +-60% swing on the GDSF value
-
-
-def value(
-    entry: CacheEntry,
-    now: float,
-    weights: dict[str, float],
-    refs: ScoreRefs,
-    inflation_L: float,
-    latency_usd_per_ms: float,
-) -> float:
-    """
-    L + w_core * GDSF_core * (1 + tilt)
-
-    where `tilt` is a bounded, bandit-weighted nudge from the [0,1] modifiers.
-    At tilt = 0 this is exactly GDSF; the bandit only re-ranks near-ties.
-    """
-    s = signals(entry, now, refs, latency_usd_per_ms)
-    tilt = (
-        weights["rec"] * (s["rec"] - _TILT_BASE)
-        + weights["freq"] * (s["freq"] - _TILT_BASE)
-        + weights["cost"] * (s["cost"] - _TILT_BASE)
-        - weights["size"] * (s["size"] - _TILT_BASE)
+def value(entry: CacheEntry, now: float, weights: dict[str, float], refs: ScoreRefs,
+          inflation_L: float, latency_usd_per_ms: float, ml: float = 0.0) -> float:
+    """L + weighted sum of the GDSF term, the heuristic terms, and the ML term."""
+    s = signals(entry, now, refs, latency_usd_per_ms, ml)
+    return (
+        inflation_L
+        + weights["gdsf"] * s["gdsf"]
+        + weights["rec"] * s["rec"]
+        + weights["fresh"] * s["fresh"]
+        + weights["ml"] * s["ml"]
+        - weights["size"] * s["size"]
     )
-    factor = 1.0 + _TILT_GAIN * tilt
-    factor = 0.25 if factor < 0.25 else 2.0 if factor > 2.0 else factor
-    return inflation_L + weights["core"] * s["core"] * factor
 
 
-def refresh_priority(
-    entry: CacheEntry, now: float, refs: ScoreRefs, latency_usd_per_ms: float
-) -> float:
+# --------------------------------------------------------------------------- #
+#  Tier placement — the economic calculation
+# --------------------------------------------------------------------------- #
+_SAVE_CACHE: dict[tuple[float, float, int], tuple[float, float, float]] = {}
+
+
+def serve_saving(spec: ObjectSpec, tier: int, cfg: CostConfig) -> float:
+    """$ avoided per hit by serving from `tier` instead of regenerating."""
+    # Keyed on the values serve_saving actually depends on, not id(spec):
+    # short-lived ObjectSpec instances (ghost entries, live-sim churn) get
+    # garbage-collected and CPython reuses their id(), which used to make
+    # this cache silently return a stale value computed for a *different*
+    # object that happened to land at the same address.
+    key = (spec.gen_latency_ms, spec.gen_cost_usd, id(cfg))
+    trip = _SAVE_CACHE.get(key)
+    if trip is None:
+        trip = tuple(
+            max(spec.gen_latency_ms - cfg.tiers[i].hit_latency_ms, 0.0) * cfg.latency_usd_per_ms
+            + spec.gen_cost_usd
+            for i in range(3)
+        )
+        if len(_SAVE_CACHE) > 200_000:
+            _SAVE_CACHE.clear()
+        _SAVE_CACHE[key] = trip
+    return trip[tier - 1]
+
+
+def hold_cost(entry: CacheEntry, tier: int, horizon_s: float, cfg: CostConfig) -> float:
+    return cfg.memory_usd(entry.size_bytes, horizon_s, tier)
+
+
+def net_value_at_tier(entry: CacheEntry, tier: int, p_access_epoch: float,
+                      expected_hits: float, horizon_s: float, cfg: CostConfig) -> float:
     """
-    Worth of a *proactive* background refresh right now.
-
-    high when:  near / past TTL  *  data likely drifted  *  likely read again soon
-    divided by the $ cost of regenerating it.
+    Expected $ gain over `horizon_s` from holding `entry` at `tier`.
+    expected_hits = predicted accesses over the horizon.
     """
+    save = serve_saving(entry.spec, tier, cfg)
+    return expected_hits * save - hold_cost(entry, tier, horizon_s, cfg)
+
+
+def best_tier(entry: CacheEntry, expected_hits: float, horizon_s: float,
+              cfg: CostConfig) -> tuple[int, float]:
+    """Return (tier, net_value) for the most profitable tier, or (0, nv) to evict."""
+    best_t, best_nv = 0, 0.0
+    for t in (L1, L2, L3):
+        nv = net_value_at_tier(entry, t, 0.0, expected_hits, horizon_s, cfg)
+        if nv > best_nv:
+            best_t, best_nv = t, nv
+    return best_t, best_nv
+
+
+def refresh_priority(entry: CacheEntry, now: float, refs: ScoreRefs,
+                     latency_usd_per_ms: float) -> float:
     st = entry.staleness(now)
     if st < 0.55:
         return 0.0
-    drift = 1.0 - math.exp(-entry.spec.volatility * (4.0 * st))
+    drift = 1.0 - math.exp(-entry.spec.volatility * (4.0 * min(st, 2.0)))
     s = signals(entry, now, refs, latency_usd_per_ms)
-    reuse = 0.5 * s["freq"] + 0.5 * s["rec"]
-    refresh_cost = entry.spec.gen_cost_usd + latency_usd_per_ms * entry.spec.gen_latency_ms
-    return drift * reuse / (1.0 + 50.0 * refresh_cost)
+    reuse = 0.5 * min(s["gdsf"], 1.0) + 0.5 * s["rec"]
+    rc = entry.spec.gen_cost_usd + latency_usd_per_ms * entry.spec.gen_latency_ms
+    return drift * reuse / (1.0 + 50.0 * rc)

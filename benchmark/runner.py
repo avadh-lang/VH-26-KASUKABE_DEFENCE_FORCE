@@ -17,21 +17,32 @@ from workload import generate
 from benchmark.driver import SimDriver, RunResult
 
 from baselines import REGISTRY as BASELINE_REGISTRY
-from engine import AACMSCache
+from engine import CacheMind
 
-POLICY_NAMES = ("LRU", "LFU", "GDS", "GDSF", "AACMS-fixed", "AACMS")
+POLICY_NAMES = ("LRU", "LFU", "GDSF", "LRU-tiered", "GDSF-tiered", "CM-fixed", "CACHE MIND")
 RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
+
+
+# CACHE MIND ablation variants: which capability is switched OFF
+ABLATIONS = {
+    "CACHE MIND":      dict(),                                     # full engine
+    "CM-fixed":        dict(autoscale=False, adapt_weights=False,  # value model + tiers only
+                           admission=False, refresh=False, prefetch=False, compress=False),
+    "CM-notier":       dict(tiering=False),                        # single L1 tier
+    "CM-noprefetch":   dict(prefetch=False),
+    "CM-nobandit":     dict(adapt_weights=False),
+    "CM-noautoscale":  dict(autoscale=False),
+    "CM-norefresh":    dict(refresh=False),
+    "CM-nocompress":   dict(compress=False),
+}
 
 
 def build_policy(name: str, capacity_bytes: int, cost_cfg: CostConfig, epoch_seconds: float):
     if name in BASELINE_REGISTRY:
         return BASELINE_REGISTRY[name](capacity_bytes)
-    if name == "AACMS":
-        return AACMSCache(capacity_bytes, cost_cfg, epoch_seconds=epoch_seconds, autoscale=True)
-    if name == "AACMS-fixed":       # ablation: engine scoring, no bandit adaptation, no autoscale
-        p = AACMSCache(capacity_bytes, cost_cfg, epoch_seconds=epoch_seconds, autoscale=False)
-        p.maintenance = lambda now: None  # freeze weights at "balanced"
-        p.name = "AACMS-fixed"
+    if name in ABLATIONS:
+        p = CacheMind(capacity_bytes, cost_cfg, epoch_seconds=epoch_seconds, **ABLATIONS[name])
+        p.name = name
         return p
     raise KeyError(f"unknown policy {name!r}")
 
