@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 760" font-family="ui-sans-serif,-apple-system,Segoe UI,Roboto,sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6b7a"/>
+    </marker>
+    <style>
+      .box{fill:#fff;stroke:#c9d4de;stroke-width:1.5}
+      .lbl{font-size:13px;fill:#1c2b36;font-weight:600}
+      .sub{font-size:11px;fill:#5b6b7a}
+      .grp{font-size:12px;fill:#8b98a5;font-weight:700;letter-spacing:.08em}
+      .flow{stroke:#5b6b7a;stroke-width:1.6;fill:none;marker-end:url(#a)}
+      .note{font-size:10.5px;fill:#7a8894;font-style:italic}
+      .eng{fill:#fff4f3;stroke:#f0a9a2}
+      .base{fill:#f3faf4;stroke:#a9d9b2}
+      .data{fill:#f2f7fd;stroke:#a8c8ec}
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1180" height="760" fill="#ffffff"/>
+  <text x="40" y="38" font-size="20" font-weight="700" fill="#0e1116">AACMS — Adaptive, Application-Aware Cache Management System</text>
+  <text x="40" y="58" class="sub">Every module depends only on common/interfaces.py · KASUKABE DEFENCE FORCE</text>
+
+  <!-- WORKLOAD -->
+  <text x="40" y="96" class="grp">WORKLOAD/</text>
+  <rect rx="9" class="box data" x="40" y="106" width="250" height="86"/>
+  <text x="56" y="130" class="lbl">Traffic generator</text>
+  <text x="56" y="150" class="sub">2 profiles: api (read-heavy, $/miss)</text>
+  <text x="56" y="166" class="sub">          recsys (compute-heavy, latency/miss)</text>
+  <text x="56" y="182" class="sub">5 scenarios: steady · spike · shift · diurnal · cold</text>
+  <text x="150" y="214" class="note" text-anchor="middle">stream of (t, ObjectSpec)</text>
+
+  <!-- DRIVER -->
+  <text x="40" y="262" class="grp">BENCHMARK/</text>
+  <rect rx="9" class="box" x="40" y="272" width="250" height="118"/>
+  <text x="56" y="296" class="lbl">SimDriver</text>
+  <text x="56" y="315" class="sub">one clock · one cost model</text>
+  <text x="56" y="333" class="sub">per request: hit / stale-hit /</text>
+  <text x="56" y="349" class="sub">refresh / miss  → charge $</text>
+  <text x="56" y="367" class="sub">per epoch: maintenance() + snapshot</text>
+  <text x="56" y="384" class="sub">→ results/aacms.db (SQLite) + report</text>
+
+  <!-- POLICIES: baselines -->
+  <text x="340" y="96" class="grp">BASELINES/</text>
+  <rect rx="9" class="box base" x="340" y="106" width="220" height="86"/>
+  <text x="356" y="130" class="lbl">LRU · LFU · GDS · GDSF</text>
+  <text x="356" y="150" class="sub">from scratch, one interface</text>
+  <text x="356" y="166" class="sub">GDSF = strongest classical</text>
+  <text x="356" y="182" class="sub">baseline (cost+size+freq)</text>
+
+  <!-- ENGINE -->
+  <text x="600" y="96" class="grp">ENGINE/ — AACMS</text>
+  <rect rx="9" class="box eng" x="600" y="106" width="540" height="298"/>
+
+  <rect rx="9" class="box" x="620" y="128" width="240" height="92"/>
+  <text x="634" y="150" class="lbl">scoring.py</text>
+  <text x="634" y="169" class="sub">value = L + w_core·CORE·(1+tilt)</text>
+  <text x="634" y="185" class="sub">CORE = GDSF magnitude (norm.)</text>
+  <text x="634" y="201" class="sub">tilt = bounded ±60% from 4 signals</text>
+  <text x="634" y="215" class="note">tilt=0 ⇒ exactly GDSF (safety floor)</text>
+
+  <rect rx="9" class="box" x="880" y="128" width="240" height="92"/>
+  <text x="894" y="150" class="lbl">bandit.py — LinUCB</text>
+  <text x="894" y="169" class="sub">8-feature context / epoch</text>
+  <text x="894" y="185" class="sub">picks 1 of 5 weight "personalities"</text>
+  <text x="894" y="201" class="sub">reward = hitrate − .35·lat − .45·cost</text>
+  <text x="894" y="215" class="note">the ML part — adapts at runtime</text>
+
+  <rect rx="9" class="box" x="620" y="236" width="150" height="72"/>
+  <text x="634" y="258" class="lbl">regime.py</text>
+  <text x="634" y="277" class="sub">steady / spike /</text>
+  <text x="634" y="293" class="sub">shift / cold label</text>
+
+  <rect rx="9" class="box" x="784" y="236" width="150" height="72"/>
+  <text x="798" y="258" class="lbl">autoscaler.py</text>
+  <text x="798" y="277" class="sub">ghost list → ROI</text>
+  <text x="798" y="293" class="sub">grow / shrink / hold</text>
+
+  <rect rx="9" class="box" x="948" y="236" width="172" height="72"/>
+  <text x="962" y="258" class="lbl">aacms.py</text>
+  <text x="962" y="277" class="sub">admission (value-based)</text>
+  <text x="962" y="293" class="sub">evict (sampled) · refresh</text>
+
+  <rect rx="9" class="box" x="620" y="324" width="500" height="62"/>
+  <text x="634" y="346" class="lbl">per request</text>
+  <text x="634" y="365" class="sub">lookup → hit / stale→refresh? / miss → admit? → sampled-evict lowest value</text>
+  <text x="634" y="379" class="sub">per epoch: bandit weights · regime · τ adapt · autoscale · proactive-refresh queue</text>
+
+  <!-- SNAPSHOTS -->
+  <text x="40" y="452" class="grp">RESULTS/</text>
+  <rect rx="9" class="box data" x="40" y="462" width="250" height="70"/>
+  <text x="56" y="486" class="lbl">EpochSnapshot rows</text>
+  <text x="56" y="505" class="sub">aacms.db (runs + epochs tables)</text>
+  <text x="56" y="521" class="sub">REPORT_*.md + charts</text>
+
+  <!-- API + DASHBOARD -->
+  <text x="340" y="452" class="grp">API/ + DASHBOARD/</text>
+  <rect rx="9" class="box" x="340" y="462" width="800" height="118"/>
+  <text x="356" y="486" class="lbl">FastAPI live simulator + SSE stream</text>
+  <text x="356" y="505" class="sub">LiveSim runs all policies in lockstep · CostLedger (savings vs baseline) · POST /spike injects a flash crowd</text>
+  <rect rx="9" class="box" x="356" y="514" width="360" height="54"/>
+  <text x="370" y="534" class="lbl" font-size="12">React dashboard (Vite + Recharts)</text>
+  <text x="370" y="551" class="sub">hit rate · cumulative cost · p95 latency · capacity · decision feed · bandit weights</text>
+  <rect rx="9" class="box" x="732" y="514" width="390" height="54"/>
+  <text x="746" y="534" class="lbl" font-size="12">⚡ Inject traffic spike</text>
+  <text x="746" y="551" class="sub">the demo: cost gap widens · bandit arm flips to cost_first</text>
+
+  <!-- RESULTS strip -->
+  <rect rx="9" class="box eng" x="40" y="616" width="1100" height="104"/>
+  <text x="56" y="640" class="lbl">Results — api profile, cache = 15% of working set, identical cost model</text>
+  <text x="56" y="663" class="sub">steady:  AACMS −59% cost vs GDSF   ·   −81% vs LRU        spike:  −62% vs GDSF   ·   −84% vs LRU</text>
+  <text x="56" y="682" class="sub">popularity shift:  −61% vs GDSF   ·   LFU goes WORSE than LRU (stale frequency), AACMS stays flat</text>
+  <text x="56" y="701" class="sub">AACMS-fixed (no bandit, no autoscale) still beats GDSF by ~10% at identical capacity — the value model alone is a contribution</text>
+  <text x="1124" y="713" class="note" text-anchor="end">p95 latency: LRU/LFU ~350–440ms · cost-aware ~18–24ms</text>
+
+  <!-- FLOWS -->
+  <path class="flow" d="M165 192 L165 272"/>
+  <path class="flow" d="M290 320 L340 320 L340 195" marker-start="url(#a)"/>
+  <text x="300" y="256" class="note">drives</text>
+  <path class="flow" d="M290 345 L600 345 L600 345" marker-start="url(#a)"/>
+  <text x="430" y="338" class="note">drives</text>
+  <path class="flow" d="M165 390 L165 462"/>
+  <text x="176" y="430" class="note">EpochSnapshot</text>
+  <path class="flow" d="M290 497 L340 497"/>
+  <path class="flow" d="M740 404 L740 462"/>
+</svg>
