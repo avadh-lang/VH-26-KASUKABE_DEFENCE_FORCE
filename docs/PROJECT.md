@@ -197,25 +197,31 @@ demotes not evicts; single-tier fallback) · the headline claims
 `test_cachemind_serves_faster_and_cheaper_than_dumb_tiering`).
 `.github/workflows/ci.yml` runs pytest + a benchmark smoke on every push.
 
-## 11. Results & ablation (`api`)
+## 11. Results & ablation (`api`, L1 = 12 % of working set)
 
-| comparison | cost | latency |
-|---|---|---|
-| tiering alone (GDSF → GDSF-tiered) | **−45 %** | ~24 → ~20 ms |
-| CACHE MIND vs GDSF | **−60 %** | ~24 → **~6 ms** |
-| CACHE MIND vs GDSF-tiered (same hardware) | **−18 %** | ~20 → **~6 ms** |
+| policy | hit | p95 | cost $ | vs GDSF |
+|---|---|---|---|---|
+| LRU / LFU | 0.77 / 0.81 | 426 / 340 ms | 148 / 128 | −120 % / −91 % |
+| GDSF (best single-tier) | 0.77 | 23 ms | 67 | — |
+| GDSF-tiered (same L1/L2/L3, dumb) | 0.99 | 14 ms | 39 | +42 % |
+| **CACHE MIND** | 0.99 | **6 ms** | **20** | **+71 %** |
 
-Ablation (`results/ABLATION_api.md`) — two capabilities carry the win:
+spike / popularity-shift / regime-flip vs GDSF: **−74 / −73 / −82 %**; vs
+GDSF-tiered: **−48 to −50 %**. Cheapest at every L1 size (5–40 %).
 
-1. **Tiering**: −45 % cost vs single-tier GDSF; vs a *smart* single-tier engine
-   the raw cost is a wash but hit rate goes 0.80 → 0.99 and p95 19 ms → 6 ms.
-2. **Smart refresh**: serve-stale + proactive background refresh instead of
-   blocking refetch on every stale hit — 30–40 % of total cost.
+**Ablation** (`results/ABLATION_api.md`) — two capabilities each roughly *double*
+total cost when removed:
 
-Autoscaler / bandit / prefetch / compression are within a few percent on these
+1. **Tiering** (`CM-notier`): +165–175 %. Overflow demoted to a warm hit instead
+   of evicted; hit rate 0.88 → 0.99, p95 19 → 6 ms.
+2. **Smart refresh** (`CM-norefresh`): +93–97 %. Serve-stale-now +
+   background-refresh-next-epoch instead of a blocking refetch on every stale
+   hit. `CM-fixed` (value model + tiers, everything else off) ≈ `GDSF-tiered`
+   ($40); refresh + placement take it to $20.
+
+Autoscaler +4–5 %; **bandit / prefetch / compression within ±3 %** on these
 stationary Zipf workloads — kept for runtime adaptivity (the PS's requirement)
-and robustness under surges / selective admission / tight tiers. Wins on all 6
-scenarios and both profiles.
+and robustness under surges. Wins on all 6 scenarios and both profiles.
 
 ## 12. Likely jury questions
 

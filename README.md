@@ -21,25 +21,30 @@ warm hit.
 
 ## Results — `api` profile, L1 = 12 % of working set, identical cost model
 
-| policy | hit rate | p95 latency | cost | vs GDSF | vs GDSF-tiered |
-|---|---|---|---|---|---|
-| GDSF (single-tier, best classical) | 0.75 | 24 ms | — | — | |
-| **GDSF-tiered** (same L1/L2/L3, dumb placement) | 0.95 | ~20 ms | | **−45 %** | — |
-| **CACHE MIND** (smart placement + prefetch + adapt) | 0.95 | **~6 ms** | | **−60 %** | **−18 %** |
+| policy | hit rate | p95 latency | cost $ | vs GDSF |
+|---|---|---|---|---|
+| LRU | 0.77 | 426 ms | 148.1 | −120 % |
+| LFU | 0.81 | 340 ms | 128.4 | −91 % |
+| GDSF (best single-tier classical) | 0.77 | 23 ms | 67.3 | — |
+| **GDSF-tiered** (same L1/L2/L3, dumb placement) | 0.99 | 14 ms | 39.4 | **+42 %** |
+| **CACHE MIND** | 0.99 | **6 ms** | **19.8** | **+71 %** |
 
-Two separable wins:
-- **Tiering** turns evictions into warm L2/L3 hits instead of origin misses —
-  −45 % cost vs single-tier GDSF.
-- **Smart refresh** — serve-stale-on-purpose for low-drift low-value entries +
-  proactive background refresh of hot ones, instead of a blocking refetch on
-  every stale hit — a further −13 to −28 % vs `GDSF-tiered` on the *same*
-  hardware.
-- **Value-aware placement** keeps the genuinely hot objects in fast L1, so p95
-  latency is a flat **6 ms** vs 9–22 ms for dumb tiering.
+(spike / popularity-shift / regime-flip: **−74 / −73 / −82 %** vs GDSF.)
 
-The bandit, autoscaler, prefetch and compression are within a few percent on
-these Zipf workloads — kept for runtime adaptivity and robustness (full
-per-feature ablation in `results/ABLATION_api.md`).
+Two capabilities carry the win — the ablation (`results/ABLATION_api.md`) shows
+each roughly **doubles total cost when removed**:
+
+1. **Tiering** — overflow is demoted to a warm L2/L3 hit instead of evicted into
+   a 900 ms origin miss.
+2. **Smart refresh** — a stale hit is served immediately and the object is
+   **refreshed in the background** next epoch, instead of a blocking refetch.
+
+On the *same* L1/L2/L3 hardware, CACHE MIND still beats `GDSF-tiered` by **~50 %
+cost** and keeps p95 latency at a flat **6 ms** (vs ~14–22 ms) by placing the
+genuinely hot objects in fast L1. Cheapest at **every** L1 size (5–40 %).
+
+The bandit, autoscaler, prefetch and compression are a few percent each on these
+Zipf workloads — kept for runtime adaptivity and robustness under surges.
 
 Beats every baseline on **four** scenarios: steady, sudden spike, gradual
 popularity shift, and an adversarial regime-flip. Full numbers +

@@ -103,13 +103,15 @@ exactly GDSF.
 
 Identical rules for every policy — apples-to-apples.
 
-## 7. Results (api profile)
+## 7. Results (api profile, L1 = 12 % of working set)
 
-| | vs GDSF | vs GDSF-tiered (same hardware) |
+| | cost vs GDSF | p95 latency |
 |---|---|---|
-| tiering alone | −45 % cost | — |
-| **CACHE MIND** | **−60 % cost** | **−18 % cost, ~⅓ the p95 latency** |
+| LRU / LFU | −120 % / −91 % | 340–426 ms |
+| GDSF-tiered (same L1/L2/L3, dumb placement) | **+42 %** | 14 ms |
+| **CACHE MIND** | **+71 %** (spike/shift/flip: +74/+73/+82 %) | **6 ms** |
 
-Wins on steady / spike / popularity-shift / regime-flip. Ablation
-(`results/ABLATION_api.md`) attributes the contributions: tiering ≫ smart
-placement + prefetch ≈ autoscaler ≈ refresh ≫ bandit ≈ compression.
+vs the *fair* GDSF-tiered baseline: **−48 to −50 % cost**, ~⅓ the p95 latency.
+Ablation: **tiering** (+165–175 % if removed) and **smart refresh** (+93–97 %)
+each roughly double cost; autoscaler +4–5 %; bandit / prefetch / compression
+±3 % (adaptivity + robustness).

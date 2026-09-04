@@ -109,13 +109,13 @@
   <!-- results strip -->
   <rect rx="10" class="box eng" x="40" y="556" width="1120" height="180"/>
   <text x="56" y="580" class="lbl">Results — api profile, L1 = 12 % of working set, identical cost model</text>
-  <text x="56" y="606" class="sub">                      GDSF (1-tier)   GDSF-tiered (same L1/L2/L3)   CACHE MIND</text>
-  <text x="56" y="626" class="sub">  steady      cost $     67.3             39.4                       28.2      (−58 % vs GDSF · −28 % vs tiered)</text>
-  <text x="56" y="644" class="sub">  spike       cost $     84.3             42.0                       31.7      (−62 % · −24 %)</text>
-  <text x="56" y="662" class="sub">  pop-shift   cost $     76.1             39.8                       30.7      (−60 % · −23 %)</text>
-  <text x="56" y="680" class="sub">  regime-flip cost $    159.3             53.5                       46.7      (−71 % · −13 %)</text>
-  <text x="56" y="702" class="sub">  p95 latency         23–155 ms         9–22 ms                  6 ms flat</text>
-  <text x="56" y="722" class="note">wins: tiering (warm hits vs origin misses) + smart refresh (serve-stale + proactive) + value-aware L1 placement</text>
+  <text x="56" y="606" class="sub">                    LRU     GDSF (1-tier)   GDSF-tiered (same L1/L2/L3)   CACHE MIND</text>
+  <text x="56" y="626" class="sub">  steady      cost $  148       67.3             39.4                        19.8    (−71 % vs GDSF · −50 % vs tiered)</text>
+  <text x="56" y="644" class="sub">  spike       cost $  198       84.3             42.0                        21.8    (−74 % · −48 %)</text>
+  <text x="56" y="662" class="sub">  pop-shift   cost $  152       76.1             39.8                        20.7    (−73 % · −48 %)</text>
+  <text x="56" y="680" class="sub">  regime-flip cost $  328      159.3             53.5                        28.5    (−82 % · −47 %)</text>
+  <text x="56" y="702" class="sub">  p95 latency       426 ms   23–155 ms         9–22 ms                    6 ms flat</text>
+  <text x="56" y="722" class="note">ablation: tiering (warm hits vs origin misses) + smart refresh (serve-stale now, background-refresh next epoch) each ~double cost when removed</text>
 
   <!-- flows -->
   <path class="flow" d="M155 172 L155 218"/>
