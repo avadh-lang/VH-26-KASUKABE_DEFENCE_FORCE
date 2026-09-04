@@ -172,7 +172,7 @@ def refresh_priority(entry: CacheEntry, now: float, refs: ScoreRefs,
     st = entry.staleness(now)
     if st < 0.55:
         return 0.0
-    drift = 1.0 - math.exp(-entry.spec.volatility * (4.0 * st))
+    drift = 1.0 - math.exp(-entry.spec.volatility * (4.0 * min(st, 2.0)))
     s = signals(entry, now, refs, latency_usd_per_ms)
     reuse = 0.5 * min(s["gdsf"], 1.0) + 0.5 * s["rec"]
     rc = entry.spec.gen_cost_usd + latency_usd_per_ms * entry.spec.gen_latency_ms

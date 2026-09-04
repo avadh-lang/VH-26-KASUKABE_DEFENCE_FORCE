@@ -132,6 +132,7 @@ class CacheMind(CachePolicy):
         self._ep_lat = self._ep_miss_cost = 0.0
         self._ep_moves = 0
         self._ep_keys: Counter[str] = Counter()
+        self._stale_seen: set[str] = set()      # stale hits to background-refresh next epoch
 
     # ------------------------------------------------------------------ #
     #  CachePolicy surface
@@ -192,9 +193,12 @@ class CacheMind(CachePolicy):
         if not self.refresh_enabled:
             return True
         rp = refresh_priority(entry, now, self.refs, self.cfg.latency_usd_per_ms)
-        if rp >= 0.4:
+        if rp >= 0.6:                       # high drift + high value: block & refresh (rare)
             return True
-        self._note("serve_stale", entry.key, f"stale, low refresh value {rp:.2f} — serve stale")
+        if rp >= 0.18:                      # worth refreshing, but not worth making the user wait
+            self._stale_seen.add(entry.key)  # -> background refresh next epoch
+        else:
+            self._note("serve_stale", entry.key, f"low drift risk ({rp:.2f}) — serve stale, skip refresh")
         return False
 
     def on_refresh(self, entry: CacheEntry, now: float) -> None:
@@ -456,13 +460,16 @@ class CacheMind(CachePolicy):
     def _pick_refresh(self, now: float) -> list[str]:
         if self.proactive_per_epoch <= 0:
             return []
+        # first: objects that took a stale hit this epoch and are worth fixing
+        out = [k for k in self._stale_seen if self.store.get(k) is not None]
+        # then: hot, near-stale, drift-prone objects, refreshed *before* they're asked for
         scored = [(refresh_priority(e, now, self.refs, self.cfg.latency_usd_per_ms), e.key)
-                  for e in self.store.all_entries()]
+                  for e in self.store.all_entries() if e.key not in self._stale_seen]
         scored.sort(reverse=True)
-        out = [k for pr, k in scored[: self.proactive_per_epoch] if pr > 0.25]
+        out += [k for pr, k in scored[: self.proactive_per_epoch] if pr > 0.25]
         for k in out:
-            self._note("refresh", k, "hot + near-stale + drift-prone")
-        return out
+            self._note("refresh", k, "background refresh — no client waits")
+        return out[: self.proactive_per_epoch * 4]
 
     def _autoscale(self, now: float) -> None:
         # --- L1: cost-benefit ghost-list ROI test -----------------------
