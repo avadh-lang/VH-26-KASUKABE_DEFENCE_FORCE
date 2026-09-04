@@ -1,16 +1,22 @@
+export type Tier = { tier: string; used_mb: number; cap_mb: number };
+
 export type PolicySnap = {
   policy: string;
   hit_rate: number;
   hit_rate_cum: number;
+  l1_rate: number;
+  l2_rate: number;
+  l3_rate: number;
   avg_latency_ms: number;
   p95_latency_ms: number;
   cost_total: number;
   cost_origin: number;
   cost_latency: number;
   cost_memory: number;
-  capacity_mb: number;
+  cost_move: number;
   used_mb: number;
   entries: number;
+  tiers?: Tier[];
   weights?: Record<string, number>;
   bandit_arm?: string;
   regime?: string;
@@ -38,10 +44,8 @@ export type Frame = {
 
 export type Meta = { scenarios: string[]; profiles: string[]; policies: string[] };
 
-const base = "";
-
 export async function getMeta(): Promise<Meta> {
-  return (await fetch(`${base}/api/meta`)).json();
+  return (await fetch(`/api/meta`)).json();
 }
 
 export async function startSim(body: {
@@ -50,7 +54,7 @@ export async function startSim(body: {
   policies: string[];
   speed: number;
 }): Promise<{ run_id: string; start_capacity_mb: number }> {
-  const r = await fetch(`${base}/api/sim/start`, {
+  const r = await fetch(`/api/sim/start`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -60,11 +64,11 @@ export async function startSim(body: {
 }
 
 export async function injectSpike(runId: string) {
-  await fetch(`${base}/api/sim/${runId}/spike`, { method: "POST" });
+  await fetch(`/api/sim/${runId}/spike`, { method: "POST" });
 }
 
 export async function setScenario(runId: string, scenario: string) {
-  await fetch(`${base}/api/sim/${runId}/scenario`, {
+  await fetch(`/api/sim/${runId}/scenario`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ scenario }),
@@ -72,11 +76,11 @@ export async function setScenario(runId: string, scenario: string) {
 }
 
 export async function stopSim(runId: string) {
-  await fetch(`${base}/api/sim/${runId}`, { method: "DELETE" });
+  await fetch(`/api/sim/${runId}`, { method: "DELETE" });
 }
 
 export function streamSim(runId: string, onFrame: (f: Frame) => void): EventSource {
-  const es = new EventSource(`${base}/api/sim/${runId}/stream`);
+  const es = new EventSource(`/api/sim/${runId}/stream`);
   es.addEventListener("epoch", (e) => onFrame(JSON.parse((e as MessageEvent).data)));
   es.addEventListener("done", () => es.close());
   return es;

@@ -86,6 +86,8 @@ def build_catalog(profile: str, n: int | None = None, seed: int = 0) -> dict[str
     )
     ttl = rng.uniform(*p.ttl_s, n)
     vol = rng.uniform(*p.volatility, n)
+    # text/JSON objects compress well; already-encoded blobs (images, embeddings) do not
+    compressible = np.clip(rng.beta(2.0, 2.0, n) * (0.75 if profile == "api" else 0.35), 0.0, 0.9)
 
     catalog: dict[str, ObjectSpec] = {}
     for i in range(n):
@@ -97,6 +99,7 @@ def build_catalog(profile: str, n: int | None = None, seed: int = 0) -> dict[str
             gen_cost_usd=float(cost[i]),
             ttl_s=float(ttl[i]),
             volatility=float(vol[i]),
+            compressible=float(compressible[i]),
             tags=(p.tag, "expensive" if is_exp[i] else "cheap"),
         )
     return catalog

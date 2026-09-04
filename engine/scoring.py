@@ -123,12 +123,17 @@ def value(entry: CacheEntry, now: float, weights: dict[str, float], refs: ScoreR
 # --------------------------------------------------------------------------- #
 #  Tier placement — the economic calculation
 # --------------------------------------------------------------------------- #
-_SAVE_CACHE: dict[int, tuple[float, float, float]] = {}
+_SAVE_CACHE: dict[tuple[float, float, int], tuple[float, float, float]] = {}
 
 
 def serve_saving(spec: ObjectSpec, tier: int, cfg: CostConfig) -> float:
     """$ avoided per hit by serving from `tier` instead of regenerating."""
-    key = id(spec)
+    # Keyed on the values serve_saving actually depends on, not id(spec):
+    # short-lived ObjectSpec instances (ghost entries, live-sim churn) get
+    # garbage-collected and CPython reuses their id(), which used to make
+    # this cache silently return a stale value computed for a *different*
+    # object that happened to land at the same address.
+    key = (spec.gen_latency_ms, spec.gen_cost_usd, id(cfg))
     trip = _SAVE_CACHE.get(key)
     if trip is None:
         trip = tuple(

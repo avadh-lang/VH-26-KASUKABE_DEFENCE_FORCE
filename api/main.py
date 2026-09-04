@@ -1,5 +1,5 @@
 """
-AACMS API — starts live simulations and streams per-epoch metrics (SSE) to the
+CACHE MIND API — starts live simulations and streams per-epoch metrics (SSE) to the
 React dashboard. Also serves the built dashboard as static files in production.
 
     uvicorn api.main:app --reload
@@ -20,21 +20,25 @@ from sse_starlette.sse import EventSourceResponse
 
 from workload import SCENARIOS
 from workload.catalog import PROFILES
+from workload.real_catalog import probe_one
 from api.live import LiveSim
 
-app = FastAPI(title="AACMS", version="1.0")
+app = FastAPI(title="CACHE MIND", version="1.0")
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
 
 _SIMS: dict[str, LiveSim] = {}
-POLICIES = ["LRU", "LFU", "GDS", "GDSF", "AACMS-fixed", "AACMS"]
+POLICIES = ["LRU", "LFU", "GDS", "GDSF", "GDSF-tiered", "CM-notier", "CACHE MIND"]
+# "real" isn't in workload.catalog.PROFILES (it's not a synthetic generator —
+# see workload/real_catalog.py) so it's allow-listed here alongside them.
+ALL_PROFILES = list(PROFILES) + ["real"]
 
 
 class StartReq(BaseModel):
     scenario: str = "steady"
     profile: str = "api"
-    policies: list[str] = ["LRU", "LFU", "GDSF", "AACMS"]
+    policies: list[str] = ["LRU", "LFU", "GDS", "GDSF", "CACHE MIND"]
     speed: float = 8.0            # epochs per real second
 
 
@@ -49,15 +53,25 @@ def health() -> dict:
 
 @app.get("/api/meta")
 def meta() -> dict:
-    return {"scenarios": list(SCENARIOS), "profiles": list(PROFILES), "policies": POLICIES}
+    return {"scenarios": list(SCENARIOS), "profiles": ALL_PROFILES, "policies": POLICIES}
+
+
+@app.get("/api/real/ping")
+def real_ping(resource: str = "posts") -> dict:
+    """One live HTTP GET, made right now, against a real public API — proof
+    the 'real' profile's numbers come from the internet, not a distribution."""
+    try:
+        return probe_one(resource)
+    except Exception as e:
+        raise HTTPException(502, f"live probe failed: {e}")
 
 
 @app.post("/api/sim/start")
 def start(req: StartReq) -> dict:
     if req.scenario not in SCENARIOS:
         raise HTTPException(400, f"bad scenario; pick from {list(SCENARIOS)}")
-    if req.profile not in PROFILES:
-        raise HTTPException(400, f"bad profile; pick from {list(PROFILES)}")
+    if req.profile not in ALL_PROFILES:
+        raise HTTPException(400, f"bad profile; pick from {ALL_PROFILES}")
     run_id = uuid.uuid4().hex[:8]
     _SIMS[run_id] = LiveSim(
         req.scenario, req.profile,
