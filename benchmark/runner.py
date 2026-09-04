@@ -23,15 +23,24 @@ POLICY_NAMES = ("LRU", "LFU", "GDS", "GDSF", "AACMS-fixed", "AACMS")
 RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
 
 
+# AACMS ablation variants: which engine feature is switched OFF
+ABLATIONS = {
+    "AACMS":            dict(),                                    # full engine
+    "AACMS-fixed":      dict(autoscale=False, adapt_weights=False,  # value model only
+                            admission=False, refresh=False),
+    "AACMS-noadmit":    dict(admission=False),
+    "AACMS-nobandit":   dict(adapt_weights=False),
+    "AACMS-noautoscale": dict(autoscale=False),
+    "AACMS-norefresh":  dict(refresh=False),
+}
+
+
 def build_policy(name: str, capacity_bytes: int, cost_cfg: CostConfig, epoch_seconds: float):
     if name in BASELINE_REGISTRY:
         return BASELINE_REGISTRY[name](capacity_bytes)
-    if name == "AACMS":
-        return AACMSCache(capacity_bytes, cost_cfg, epoch_seconds=epoch_seconds, autoscale=True)
-    if name == "AACMS-fixed":       # ablation: engine scoring, no bandit adaptation, no autoscale
-        p = AACMSCache(capacity_bytes, cost_cfg, epoch_seconds=epoch_seconds, autoscale=False)
-        p.maintenance = lambda now: None  # freeze weights at "balanced"
-        p.name = "AACMS-fixed"
+    if name in ABLATIONS:
+        p = AACMSCache(capacity_bytes, cost_cfg, epoch_seconds=epoch_seconds, **ABLATIONS[name])
+        p.name = name
         return p
     raise KeyError(f"unknown policy {name!r}")
 
