@@ -1,5 +1,5 @@
 """
-AACMS API — starts live simulations and streams per-epoch metrics (SSE) to the
+CACHE MIND API — starts live simulations and streams per-epoch metrics (SSE) to the
 React dashboard. Also serves the built dashboard as static files in production.
 
     uvicorn api.main:app --reload
@@ -22,19 +22,19 @@ from workload import SCENARIOS
 from workload.catalog import PROFILES
 from api.live import LiveSim
 
-app = FastAPI(title="AACMS", version="1.0")
+app = FastAPI(title="CACHE MIND", version="1.0")
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
 
 _SIMS: dict[str, LiveSim] = {}
-POLICIES = ["LRU", "LFU", "GDS", "GDSF", "AACMS-fixed", "AACMS"]
+POLICIES = ["LRU", "LFU", "GDS", "GDSF", "GDSF-tiered", "CM-notier", "CACHE MIND"]
 
 
 class StartReq(BaseModel):
     scenario: str = "steady"
     profile: str = "api"
-    policies: list[str] = ["LRU", "LFU", "GDSF", "AACMS"]
+    policies: list[str] = ["LRU", "LFU", "GDS", "GDSF", "CACHE MIND"]
     speed: float = 8.0            # epochs per real second
 
 
