@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Env / secrets
+.env
+.env.local
+*.local
+
+# Build output
+dist/
+build/
+.next/
+out/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.log
+
+# Misc
+coverage/
+.cache/
+
+# dashboard
+dashboard/node_modules/
+dashboard/dist/
+
+# benchmark db (regenerable via `python -m benchmark.runner`)
+results/*.db
