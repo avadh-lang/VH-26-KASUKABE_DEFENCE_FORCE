@@ -192,7 +192,7 @@ class CacheMind(CachePolicy):
         if not self.refresh_enabled:
             return True
         rp = refresh_priority(entry, now, self.refs, self.cfg.latency_usd_per_ms)
-        if rp >= 0.15:
+        if rp >= 0.4:
             return True
         self._note("serve_stale", entry.key, f"stale, low refresh value {rp:.2f} — serve stale")
         return False
