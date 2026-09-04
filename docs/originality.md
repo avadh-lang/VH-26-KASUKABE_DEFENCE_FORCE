@@ -35,24 +35,27 @@ Because origin latency dwarfs inter-tier latency, an expensive object is worth
 holding even in cold L3 — but a cheap one that just fell out of L1 is *evicted*,
 not demoted. Our tiered baselines (`LRU-tiered`, `GDSF-tiered`) implement the
 positional approach for a controlled comparison; CACHE MIND beats them by
-13–28 % cost and ~⅔ p95 latency on the *same* hardware.
+47–50 % cost and ~⅓ the p95 latency on the *same* hardware.
 
-### 1. GDSF core + a *bounded* adaptive tilt — with a provable floor
+### 1. An explicit 3-family value model — with a provable floor
 ```
-value(o) = L + w_core · GDSF_core(o) · (1 + tilt(o)),   tilt ∈ ±0.8
+value(o) = L + w_gdsf·GDSF(o) + w_rec·REC(o) + w_fresh·FRESH(o)
+             − w_size·SIZE(o) + w_ml·ML(o)
 ```
-Existing adaptive caches either **switch whole policies** (ARC moves an
-LRU/LFU balance point) or **learn a policy from scratch** (RL-cache, LeCaR).
-We do neither: GDSF stays the magnitude term, and the bandit only applies a
-bounded multiplicative re-ranking. Consequence — **at `tilt → 0`, CACHE MIND *is*
-GDSF**, so it cannot be beaten by the strongest classical baseline; the
-adaptation is pure upside. We have not seen this "safety-floor" construction
-elsewhere.
+Three families in one additive score: the **proven** GDSF heuristic (kept at
+full magnitude), **hand-designed** refinements it is blind to (recency,
+freshness, size), and a **learned** term (predicted future access). Existing
+adaptive caches either **switch whole policies** (ARC moves an LRU/LFU balance
+point) or **learn a policy from scratch** (RL-cache, LeCaR). We do neither: the
+six weights `w_*` are re-chosen each epoch by a LinUCB bandit, and one arm
+(`proven`) zeroes the refinements so **`value ≈ classical GDSF`** — it cannot be
+beaten by the strongest classical baseline; the adaptation is pure upside. We
+have not seen this "safety-floor" construction elsewhere.
 
 ### 2. One retrieval-cost signal for latency *and* money
 `cost_ms_equiv = gen_latency_ms + gen_cost_usd / latency_price`. A dollar cost
 is converted to "how many ms of user latency it's worth" using the same
-business price the cost model charges, so a single `cost` term ranks a
+business price the cost model charges, so the one GDSF term ranks a
 $0.005 API object and a 900 ms compute object on one axis.
 
 ### 3. Admission by projected value + demand recycling

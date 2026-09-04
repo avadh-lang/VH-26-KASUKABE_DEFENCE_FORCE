@@ -44,7 +44,7 @@ flowchart LR
   DRV <--> BASE[baselines/<br/>LRU LFU GDS GDSF<br/>LRU-tiered GDSF-tiered]
   DRV <--> ENG
   subgraph ENG[engine/ — CACHE MIND]
-    TI[tiers.py<br/>L1/L2/L3 store] --- SC[scoring.py<br/>value + net-value/tier]
+    TI[common/tierstore.py<br/>L1/L2/L3 store] --- SC[scoring.py<br/>3-family value + net-value/tier]
     PR[predict.py<br/>p_soon · trend · confidence] --- SC
     BA[bandit.py<br/>LinUCB weights/epoch] --- SC
     AS[autoscaler.py<br/>ghost-list ROI] --- CMX[cachemind.py<br/>the 11-step loop]
@@ -63,13 +63,13 @@ Every module imports only `common/interfaces.py` (`TieredStore` lives in
 | 1 | observe cache state | tier occupancy, epoch counters |
 | 2 | understand the workload | 8 bandit context features + regime label |
 | 3 | **predict the future** | `AccessPredictor.epoch_decay` — per-key rate/trend/confidence |
-| 4 | score every object | `value(o)` — GDSF core × bandit-weighted tilt |
+| 4 | score every object | `value(o)` — bandit-weighted sum of GDSF + heuristics + ML |
 | 5 | compute net value per tier | `net_value(o, tier) = E[hits]·serve_saving − hold_cost` |
 | 6 | choose actions | promote clear winners, evict dead L3 entries (hysteresis + move budget) |
 | 7 | **PREFETCH** | predicted-hot non-resident keys → warm into L2 |
 | 8 | **REFRESH** | hot, near-stale, drift-prone entries → background regenerate |
 | 9 | **COMPRESS** | marginal keepers in a tight L2/L3 → store at reduced size |
-| 10 | **SCALE** | ghost-list ROI test grows/shrinks L1 |
+| 10 | **SCALE** | grow/shrink **all three tiers** — ghost-list ROI (L1), fill+payoff (L2/L3) |
 | 11 | **learn** | bandit reward `= hit_rate − 0.35·lat − 0.45·cost`; τ + normalisers adapt |
 
 Per request: `lookup` across tiers → serve (L1/L2/L3 latency) / blocking refresh
@@ -79,17 +79,23 @@ Per request: `lookup` across tiers → serve (L1/L2/L3 latency) / blocking refre
 ## 5. Value + placement maths
 
 ```
-value(o)  = L + w_core · CORE(o) · (1 + tilt(o))          # ranking: who to demote/evict
-CORE(o)   = freq · (gen_latency_ms + gen_cost_usd/λ$) / size_kb   (GDSF, normalised)
-tilt(o)   = Σ w_i·(signal_i − 0.4)   over {rec, freq, cost, size, pred}   ∈ ±80%
+value(o) = L                              # ranking: who to demote/evict first
+         + w_gdsf  · GDSF(o)              proven cost-aware heuristic, full magnitude
+         + w_rec   · RECENCY(o)           ┐
+         + w_fresh · FRESH(o)             ├ [0,1] heuristic refinements GDSF is blind to
+         − w_size  · SIZE(o)              ┘
+         + w_ml    · ML(o)                learned: p_soon · confidence  ∈ [0,1]
+
+GDSF(o)  = freq · (gen_latency_ms + gen_cost_usd/λ$) / size_kb / core_ref · aging(idle)
 
 serve_saving(o, tier) = max(gen_latency_ms − tier_latency, 0)·λ$  +  gen_cost_usd
 hold_cost(o, tier)    = tier_$per_GB_hr · size · horizon
 net_value(o, tier)    = E[hits over horizon] · serve_saving − hold_cost
 ```
 
-`w_*` are rewritten every epoch by the LinUCB bandit. At `tilt = 0`, `value` is
-exactly GDSF.
+The six `w_*` are re-chosen every epoch by the LinUCB bandit — none is
+structurally dominant. The `proven` arm zeroes the refinements, so `value ≈
+classical GDSF`: a provable safety floor.
 
 ## 6. Cost model (`common.CostConfig`)
 

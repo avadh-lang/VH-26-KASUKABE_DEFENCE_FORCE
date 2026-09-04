@@ -121,19 +121,28 @@ object lives*.
 Per key: EWMA of the inter-access gap + its variance, and fast/slow hit-rate
 EWMAs. Yields `p_soon` (prob. accessed within a horizon), `trend`
 (heating up / cooling), `confidence` (1 / (1 + coeff-of-variation)),
-`expected_hits(n_epochs)`. Cheap, online, no training. Feeds the `pred` value
+`expected_hits(n_epochs)`. Cheap, online, no training. Feeds the `ml` value
 signal and the PREFETCH list.
 
-### 7.2 Value score (`scoring.py`)
+### 7.2 Value score (`scoring.py`) — an explicit 3-family hybrid
 ```
-value(o) = L + w_core · CORE(o) · (1 + tilt(o))
-CORE(o)  = normalised  freq · (gen_latency_ms + gen_cost_usd/λ$) / size_kb    (GDSF shape)
-tilt(o)  = w_rec·(rec−.4) + w_freq·(freq−.4) + w_cost·(cost−.4)
-         + w_pred·(pred−.4) − w_size·(size−.4)             clipped to ±80%, factor∈[0.2,2.6]
+value(o) = L
+         + w_gdsf  · GDSF(o)      ← proven cost-aware heuristic (Cherkasova '98)
+         + w_rec   · RECENCY(o)   ┐
+         + w_fresh · FRESH(o)     ├ hand-designed heuristics GDSF is blind to
+         − w_size  · SIZE(o)      ┘
+         + w_ml    · ML(o)        ← learned: predicted future access value
+
+GDSF(o)  = freq · retrieval_cost / size_kb  / core_ref   · aging(idle)
+RECENCY  = exp(−idle / τ)                    FRESH = 1 − staleness(o)
+SIZE     = full_size / size_ref  (unit)      ML    = p_soon · confidence   ∈ [0,1]
 ```
-At `tilt = 0` this is exactly GDSF → the ranking can never be worse than the
-best classical policy. `L` is GreedyDual inflation. All `*_ref` normalisers are
-EWMAs of the live stream, so one weight vector works on both profiles.
+The GDSF term keeps its full magnitude (~[0, 40]); the four heuristic/ML terms
+are `[0, 1]` refinements on top. **No family is structurally dominant** — the six
+`w_*` are re-chosen every epoch by the bandit (§7.4). Pick the `proven`
+personality and `value ≈ classical GDSF` — a safety floor you can always fall
+back to. `L` is GreedyDual inflation; all `*_ref` normalisers are EWMAs of the
+live stream, so one weight set works on both profiles.
 
 ### 7.3 Tier placement — the economics (`scoring.py`)
 ```
@@ -148,22 +157,36 @@ L1; admission only displaces a *less valuable* L1 occupant (`min_value` guard),
 otherwise the newcomer settles for L2.
 
 ### 7.4 The bandit (`bandit.py`)
-LinUCB over 6 weight "personalities" (`balanced`, `cost_first`,
-`recency_first`, `frequency_first`, `predict_first`, `memory_saver`). 8-feature
-context per epoch; reward `= hit_rate − 0.35·norm_latency − 0.45·norm_cost`.
-Standard, explainable, no training phase.
+LinUCB over 6 weight "personalities" — each is a full `{gdsf, rec, fresh, size,
+ml}` vector, not an on/off switch:
 
-### 7.5 Autoscaler (`autoscaler.py`)
-Ghost list (recently-evicted key + size + regen $). Each epoch:
-`grow` if `Σ ghost-hit regen $ > RAM-step-rent × 1.4`; `shrink` if a step of L1
-has been idle ≥ 2 epochs and the forgone ghost benefit is below half the rent.
-Bounded (3× ceiling), symmetric.
+| arm | leans on | use |
+|---|---|---|
+| `balanced` | everything | default |
+| `proven` | GDSF only (others ≈ off) | `value ≈ classical GDSF` — the floor |
+| `predictive` | `ml` ×8 | forecast leads (churny / shifting hot set) |
+| `recency` | `rec` ×7 | recency heuristic leads |
+| `freshness` | `fresh` ×6 | protect near-TTL data |
+| `lean` | `size` ×6 | RAM-tight, size-averse |
+
+8-feature context per epoch; reward `= hit_rate − 0.35·norm_latency −
+0.45·norm_cost`. Standard, explainable, no training phase.
+
+### 7.5 Autoscaler (`autoscaler.py` + `cachemind._autoscale`)
+**All three tiers are dynamic.** L1 uses the ghost-list ROI test: keep a
+recently-evicted key + size + regen $, each epoch `grow` if `Σ ghost-hit regen $
+> RAM-step-rent × 1.4`, `shrink` if a step has been idle ≥ 2 epochs and the
+forgone ghost benefit is below half the rent (bounded 3× ceiling, symmetric).
+L2/L3 scale on fill + payoff: grow when `fill > 0.9` and that tier still earns
+its hits, shrink after 3 consecutive epochs below 50 % fill — within bounds
+`L2 ∈ [2×, 10×] L1`, `L3 ∈ [3×, 30×] L1`.
 
 ### 7.6 The epoch loop (`cachemind.py`) — 11 steps
 observe → understand → predict → score → net-value per tier → promote/evict
 (hysteresis, move budget) → **prefetch** predicted-hot → **refresh** hot
-near-stale → **compress** marginal keepers in a tight tier → **scale** L1 →
-**learn** (bandit) → update weights + τ + normalisers.
+near-stale (serve stale now, background-refresh next epoch) → **compress**
+marginal keepers in a tight tier → **scale** L1/L2/L3 → **learn** (bandit) →
+update weights + τ + normalisers.
 
 ## 8. `benchmark/` (Prathamesh)
 

@@ -59,9 +59,9 @@
 
   <rect rx="8" class="box" x="775" y="112" width="185" height="80"/>
   <text x="787" y="132" class="lbl">scoring.py</text>
-  <text x="787" y="150" class="sub">value = L + w·GDSF·(1+tilt)</text>
+  <text x="787" y="150" class="sub">value = L + Σ wᵢ·(GDSF + heuristics + ML)</text>
   <text x="787" y="165" class="sub">net_value(o, tier) economics</text>
-  <text x="787" y="181" class="note">tilt=0 ⇒ exactly GDSF</text>
+  <text x="787" y="181" class="note">"proven" arm ⇒ ≈ classical GDSF</text>
 
   <rect rx="8" class="box" x="972" y="112" width="172" height="80"/>
   <text x="984" y="132" class="lbl">bandit.py</text>
@@ -71,8 +71,8 @@
 
   <rect rx="8" class="box" x="578" y="204" width="185" height="66"/>
   <text x="590" y="224" class="lbl">autoscaler.py</text>
-  <text x="590" y="242" class="sub">ghost-list ROI test</text>
-  <text x="590" y="257" class="sub">grow / shrink L1</text>
+  <text x="590" y="242" class="sub">ghost-list ROI (L1) + fill/payoff (L2·L3)</text>
+  <text x="590" y="257" class="sub">grow / shrink all three tiers</text>
 
   <rect rx="8" class="box" x="775" y="204" width="369" height="66"/>
   <text x="787" y="224" class="lbl">cachemind.py — 11-step epoch loop</text>

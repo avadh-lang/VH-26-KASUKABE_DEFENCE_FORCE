@@ -52,9 +52,11 @@ per-feature ablation: `results/REPORT_api.md`, `results/ABLATION_api.md`.
 
 ## Algorithm — hybrid
 
-- **Heuristic core**: GreedyDual-Size-Frequency value magnitude (`freq · cost /
-  size`), online-normalised. At zero tilt the ranking *is* GDSF — a provable
-  safety floor.
+- **3-family value model**: `value = w_gdsf·GDSF + w_rec·REC + w_fresh·FRESH −
+  w_size·SIZE + w_ml·ML`. GDSF (`freq · cost / size`, online-normalised) carries
+  the magnitude; recency/freshness/size are heuristic refinements; ML is the
+  learned access forecast. The bandit's `proven` arm ≈ classical GDSF — a
+  provable safety floor.
 - **Economic tier placement**: `net_value(o, tier) = expected_hits ·
   serve_saving(o, tier) − hold_cost(o, tier)`. Place each object where it earns
   the most; evict only when every tier loses money.

@@ -135,7 +135,7 @@ epochs (run_id FK→runs, epoch, t_sim,
         requests, hit_rate, stale_rate, avg/p95_latency_ms,
         cost_total, cost_origin, cost_latency, cost_memory,
         capacity_bytes, used_bytes, entries, evictions, refreshes,
-        regime, bandit_arm, w_core, w_rec, w_freq, w_cost, w_size,
+        regime, bandit_arm, w_gdsf, w_rec, w_fresh, w_size, w_ml,
         PRIMARY KEY (run_id, epoch))
 
 ix_runs_key   (profile, scenario, policy)

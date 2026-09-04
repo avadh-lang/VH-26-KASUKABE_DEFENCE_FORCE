@@ -49,7 +49,7 @@ Press **⚡ Inject traffic spike**.
 
 - "A flash crowd — cold objects suddenly hot, 3× the request rate."
 - **Regime card** flips to `spike`; **bandit arm** shifts (often to
-  `cost_first` or `predict_first`).
+  `proven` or `predictive`).
 - **Decision feed**: point at `prefetch` and `L2->L1` lines — "it's warming
   predicted-hot objects and promoting them ahead of demand."
 - **Cost chart**: "The gap *widens* during the spike. LRU and GDSF are back to
