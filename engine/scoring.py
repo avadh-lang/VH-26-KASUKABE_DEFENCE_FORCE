@@ -1,23 +1,20 @@
 """
 Multi-factor value score.
 
-    value(entry) = L
-                 + w_core * core        (GreedyDual-Size-Frequency term, log-scaled)
-                 + w_rec  * recency      modifier   in [0,1]
-                 + w_freq * frequency    modifier   in [0,1]
-                 + w_cost * retrieval $  modifier   in [0,1]
-                 - w_size * size penalty            in [0,1]
+    value(entry) = L + w_core · CORE · (1 + tilt)
 
-`core` carries the *magnitude* of "how much do we lose by dropping this"
-(freq * retrieval-cost / size, exactly the GDSF shape) so at w = {core:1}
-AACMS reduces to GDSF and can only improve from there. The [0,1] modifiers
-let the bandit re-shape the ranking for the current regime (favour recency
-during a popularity shift, favour size under memory pressure, ...) without
-ever losing the cost/size backbone.
+`CORE` carries the *magnitude* of "how much do we lose by dropping this" —
+freq · retrieval_cost / size, exactly the GreedyDual-Size-Frequency shape,
+normalised by an online EWMA and softly capped. At `tilt = 0` this is exactly
+GDSF, so AACMS can never be beaten by the strongest classical policy.
+
+`tilt` is a bounded ±80 % re-ranking built from four [0,1] modifier signals
+(recency, frequency, retrieval $, size penalty), each weighted by the bandit.
+It only moves near-ties — it cannot flip the cost/size backbone.
 
 `L` is the GreedyDual inflation term carried by the cache (ages everything
-down over time). All reference magnitudes adapt online via `ScoreRefs`, so
-one weight vector works on both the "api" and "recsys" profiles.
+down over time). All `*_ref` magnitudes adapt online via `ScoreRefs`, so one
+weight vector works on both the "api" and "recsys" profiles.
 """
 
 from __future__ import annotations
@@ -82,7 +79,7 @@ def signals(entry: CacheEntry, now: float, refs: ScoreRefs, latency_usd_per_ms: 
 
 
 _TILT_BASE = 0.4       # modifier value treated as "neutral"
-_TILT_GAIN = 0.6       # max +-60% swing on the GDSF value
+_TILT_GAIN = 0.8       # how hard the bandit weights re-rank vs the GDSF core
 
 
 def value(
@@ -107,7 +104,7 @@ def value(
         - weights["size"] * (s["size"] - _TILT_BASE)
     )
     factor = 1.0 + _TILT_GAIN * tilt
-    factor = 0.25 if factor < 0.25 else 2.0 if factor > 2.0 else factor
+    factor = 0.2 if factor < 0.2 else 2.6 if factor > 2.6 else factor
     return inflation_L + weights["core"] * s["core"] * factor
 
 

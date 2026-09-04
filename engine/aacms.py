@@ -29,11 +29,11 @@ from engine.scoring import ScoreRefs, refresh_priority, value
 # caching "personalities" the bandit chooses between.
 # key "core" is the GDSF magnitude term; the rest are [0,1] shape modifiers.
 WEIGHT_ARMS: dict[str, dict[str, float]] = {
-    "balanced":        {"core": 1.0, "rec": 0.5, "freq": 0.5, "cost": 0.5, "size": 0.5},
-    "cost_first":      {"core": 1.0, "rec": 0.2, "freq": 0.3, "cost": 1.5, "size": 0.3},
-    "recency_first":   {"core": 1.0, "rec": 1.6, "freq": 0.2, "cost": 0.3, "size": 0.4},
-    "frequency_first": {"core": 1.0, "rec": 0.2, "freq": 1.6, "cost": 0.3, "size": 0.3},
-    "memory_saver":    {"core": 1.0, "rec": 0.4, "freq": 0.4, "cost": 0.5, "size": 1.6},
+    "balanced":        {"core": 1.0, "rec": 0.6, "freq": 0.6, "cost": 0.7, "size": 0.6},
+    "cost_first":      {"core": 1.0, "rec": 0.1, "freq": 0.2, "cost": 2.2, "size": 0.2},
+    "recency_first":   {"core": 1.0, "rec": 2.4, "freq": 0.1, "cost": 0.3, "size": 0.4},
+    "frequency_first": {"core": 1.0, "rec": 0.1, "freq": 2.4, "cost": 0.3, "size": 0.2},
+    "memory_saver":    {"core": 1.0, "rec": 0.4, "freq": 0.4, "cost": 0.7, "size": 2.4},
 }
 
 
