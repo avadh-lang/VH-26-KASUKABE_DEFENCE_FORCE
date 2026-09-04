@@ -21,6 +21,7 @@ export type PolicySnap = {
   bandit_arm?: string;
   regime?: string;
   decisions?: { epoch: number; action: string; key: string; reason: string }[];
+  l1_access_patterns?: { periodic: number; bursty: number; random: number; new: number };
 };
 
 export type Frame = {
@@ -77,6 +78,14 @@ export async function setScenario(runId: string, scenario: string) {
 
 export async function stopSim(runId: string) {
   await fetch(`/api/sim/${runId}`, { method: "DELETE" });
+}
+
+export type RealPing = { url: string; bytes: number; latency_ms: number; sample: string };
+
+export async function pingReal(resource = "posts"): Promise<RealPing> {
+  const r = await fetch(`/api/real/ping?resource=${encodeURIComponent(resource)}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
 }
 
 export function streamSim(runId: string, onFrame: (f: Frame) => void): EventSource {

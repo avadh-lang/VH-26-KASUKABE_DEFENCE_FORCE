@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Frame, Meta, PolicySnap, getMeta, injectSpike, setScenario, startSim, stopSim, streamSim,
+  Frame, Meta, PolicySnap, RealPing, getMeta, injectSpike, pingReal, setScenario, startSim, stopSim, streamSim,
 } from "./api";
 import { COLORS, MultiLine, TierBars } from "./components/Charts";
 
@@ -15,6 +15,7 @@ export default function App() {
   const [runId, setRunId] = useState<string | null>(null);
   const [frames, setFrames] = useState<Frame[]>([]);
   const [spikeMarks, setSpikeMarks] = useState<number[]>([]);
+  const [ping, setPing] = useState<RealPing | "loading" | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const wasSpiking = useRef(false);
 
@@ -46,6 +47,14 @@ export default function App() {
     setScen(s);
     if (runId) setScenario(runId, s);
   }
+  async function doPing() {
+    setPing("loading");
+    try {
+      setPing(await pingReal(profile === "real" ? "posts" : "posts"));
+    } catch {
+      setPing(null);
+    }
+  }
 
   const names = useMemo(
     () => (latest ? latest.policies.map((p) => p.policy) : DEFAULT_POLICIES),
@@ -57,15 +66,23 @@ export default function App() {
 
   const me = latest?.policies.find((p) => p.policy === ME);
   const gdsf = latest?.policies.find((p) => p.policy === "GDSF");
+  const lru = latest?.policies.find((p) => p.policy === "LRU");
   const saving = latest?.cost_report.rows.find((r) => r.policy === ME);
   const warm = me ? (me.l2_rate + me.l3_rate) : 0;
+  const patterns = me?.l1_access_patterns;
 
   return (
     <div className="app">
       <header>
-        <div>
-          <h1><span>CACHE MIND</span> · an AI brain above your cache</h1>
-          <div className="sub">KASUKABE DEFENCE FORCE — live: CACHE MIND vs LRU / LFU / GDS / GDSF</div>
+        <div className="brand">
+          <div className="brand-mark"><i /><i /><i /></div>
+          <div>
+            <h1>
+              <span className="brand-name">CACHE MIND</span>
+              <span className="tagline">an AI brain above your cache</span>
+            </h1>
+            <div className="sub">KASUKABE DEFENCE FORCE — live: CACHE MIND vs LRU / LFU / GDS / GDSF</div>
+          </div>
         </div>
         <div className="controls">
           <select value={scenario} onChange={(e) => onScenario(e.target.value)}>
@@ -80,52 +97,92 @@ export default function App() {
           {running ? <button onClick={stop}>Stop</button>
                    : <button className="primary" onClick={start}>Start</button>}
           <button className="spike" disabled={!running} onClick={() => runId && injectSpike(runId)}>
-            ⚡ Inject traffic spike
+            ⚡ Inject spike
           </button>
+          <button className="ping" onClick={doPing}>🌐 Ping real API</button>
         </div>
       </header>
 
+      {ping && (
+        <div className="ping-result">
+          {ping === "loading" ? "pinging jsonplaceholder.typicode.com …" : (
+            <>
+              live GET <span className="url">{ping.url}</span> → <b>{ping.latency_ms} ms</b>, {ping.bytes} bytes,
+              measured just now — not simulated.
+            </>
+          )}
+        </div>
+      )}
+
       {!latest ? (
-        <div className="empty">Press <b>Start</b> to launch a live simulation.</div>
+        <div className={`empty ${running ? "" : "idle"}`}>
+          <div className="ring" />
+          {running ? (
+            <>
+              <div><b>Warming up the first epoch…</b></div>
+              <div className="hint">First few rounds of simulated traffic are loading.</div>
+            </>
+          ) : (
+            <>
+              <div>Press <b>Start</b> to launch a live simulation.</div>
+              <div className="hint">
+                Five caching policies race on identical traffic in real time — watch CACHE MIND
+                place objects across three storage tiers while the classical policies only ever
+                have one.
+              </div>
+            </>
+          )}
+        </div>
       ) : (
         <>
           <div className="grid">
-            <Card k="CACHE MIND cost saving vs LRU" cls="good"
-              v={`${saving?.saving_pct ?? 0}%`}
-              foot={`$${saving?.saving_vs_baseline?.toFixed(4) ?? 0} saved so far`} />
-            <Card k="avg latency"
-              v={`${(me?.avg_latency_ms ?? 0).toFixed(1)} ms`}
-              foot={`avg — GDSF ${(gdsf?.avg_latency_ms ?? 0).toFixed(0)} ms · LRU ${(latest.policies.find(p=>p.policy==="LRU")?.avg_latency_ms ?? 0).toFixed(0)} ms`} />
-            <Card k="served from warm tiers (L2+L3)"
-              v={`${(warm * 100).toFixed(0)}%`}
-              foot={`L1 ${((me?.l1_rate ?? 0) * 100).toFixed(0)}% · single-tier caches would miss these to origin`} />
-            <Card k="detected regime"
-              v={me?.regime ?? "—"} cls={latest.spike_active ? "bad" : undefined}
-              foot={`bandit arm: ${me?.bandit_arm ?? "—"}`} />
+            <div className="card hero">
+              <div className="k">💰 CACHE MIND cost saving vs LRU</div>
+              <div className="v">{saving?.saving_pct ?? 0}%</div>
+              <div className="foot">${saving?.saving_vs_baseline?.toFixed(4) ?? 0} saved so far</div>
+            </div>
+            <div className="card">
+              <div className="k">⚡ avg latency</div>
+              <div className="v">{(me?.avg_latency_ms ?? 0).toFixed(1)} ms</div>
+              <div className="foot">GDSF {(gdsf?.avg_latency_ms ?? 0).toFixed(0)} ms · LRU {(lru?.avg_latency_ms ?? 0).toFixed(0)} ms</div>
+            </div>
+            <div className="card">
+              <div className="k">🧊 served from warm tiers</div>
+              <div className="v">{(warm * 100).toFixed(0)}%</div>
+              <div className="foot">L1 {((me?.l1_rate ?? 0) * 100).toFixed(0)}% · single-tier caches miss these to origin</div>
+            </div>
+            <div className="card">
+              <div className="k">🧭 detected regime</div>
+              <div className={`v ${latest.spike_active ? "bad" : ""}`} style={latest.spike_active ? undefined : { color: "var(--text)" }}>
+                {me?.regime ?? "—"}
+              </div>
+              <div className="foot">bandit arm: {me?.bandit_arm ?? "—"}</div>
+            </div>
           </div>
 
           <div className="legend">
             {names.map((p) => (
-              <span key={p}><span className="dot" style={{ background: COLORS[p] ?? "#ccc" }} />{p}</span>
+              <span key={p}><span className="dot" style={{ background: COLORS[p] ?? "#ccc", color: COLORS[p] ?? "#ccc" }} />{p}</span>
             ))}
-            <span style={{ marginLeft: "auto" }}>
+            <span className="meta-strip">
               <span className={`badge ${latest.spike_active ? "spike" : "live"}`}>
-                {latest.spike_active ? "⚡ SPIKE ACTIVE" : "● LIVE"}
-              </span>{" "}epoch {latest.epoch} · {latest.rate}/s · {latest.scenario}
+                <span className="pulse" />{latest.spike_active ? "SPIKE ACTIVE" : "LIVE"}
+              </span>
+              epoch {latest.epoch} · {latest.rate}/s · {latest.scenario}
             </span>
           </div>
 
           <div className="panels-2">
             <div className="chart-card">
-              <div className="chart-title">Hit rate</div>
+              <div className="chart-title">Hit rate<span className="hint">higher is better</span></div>
               <MultiLine data={hitData} keys={names} pct domain={[0, 1]} markers={spikeMarks} />
             </div>
             <div className="chart-card">
-              <div className="chart-title">Cumulative cost ($) — lower is better</div>
+              <div className="chart-title">Cumulative cost ($)<span className="hint">lower is better</span></div>
               <MultiLine data={costData} keys={names} markers={spikeMarks} />
             </div>
             <div className="chart-card">
-              <div className="chart-title">latency p95 (ms, log)</div>
+              <div className="chart-title">Latency p95 (ms, log)<span className="hint">tail-end worst case</span></div>
               <MultiLine data={latData} keys={names} unit="ms" markers={spikeMarks} log />
             </div>
             <div className="chart-card">
@@ -145,7 +202,7 @@ export default function App() {
                     <span className="reason">{d.reason}</span>
                   </div>
                 ))}
-                {!me?.decisions?.length && <div className="row"><span className="reason">warming up…</span></div>}
+                {!me?.decisions?.length && <div className="empty-row">warming up…</div>}
               </div>
             </div>
             <div className="chart-card">
@@ -155,13 +212,19 @@ export default function App() {
                   <div className="wbar" key={k}>
                     <span className="name">{k}</span>
                     <span className="track"><span className="fill" style={{ width: `${Math.min(100, (v / 8) * 100)}%` }} /></span>
-                    <span>{v.toFixed(2)}</span>
+                    <span className="num">{v.toFixed(2)}</span>
                   </div>
                 ))}
               </div>
-              <div className="arm" style={{ padding: "8px" }}>
-                active personality: <b>{me?.bandit_arm ?? "—"}</b>
-              </div>
+              {patterns && (
+                <div className="patterns">
+                  <span className="pchip periodic"><i />periodic <b>{patterns.periodic}</b></span>
+                  <span className="pchip bursty"><i />bursty <b>{patterns.bursty}</b></span>
+                  <span className="pchip random"><i />random <b>{patterns.random}</b></span>
+                  <span className="pchip new"><i />new <b>{patterns.new}</b></span>
+                </div>
+              )}
+              <div className="arm">active personality: <b>{me?.bandit_arm ?? "—"}</b></div>
             </div>
           </div>
         </>
@@ -174,14 +237,4 @@ function row(f: Frame, field: keyof PolicySnap): Record<string, number> {
   const o: Record<string, number> = {};
   for (const p of f.policies) o[p.policy] = p[field] as number;
   return o;
-}
-
-function Card({ k, v, foot, cls }: { k: string; v: string; foot?: string; cls?: string }) {
-  return (
-    <div className="card">
-      <div className="k">{k}</div>
-      <div className={`v ${cls ?? ""}`}>{v}</div>
-      {foot && <div className="foot">{foot}</div>}
-    </div>
-  );
 }
