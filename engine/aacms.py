@@ -52,6 +52,9 @@ class AACMSCache(CachePolicy):
         sample_size: int = 48,
         proactive_per_epoch: int = 8,
         autoscale: bool = True,
+        adapt_weights: bool = True,     # bandit re-weights the score each epoch
+        admission: bool = True,         # value-aware admission control
+        refresh: bool = True,           # reactive + proactive refresh logic
         seed: int = 0,
     ):
         self._capacity = int(capacity_bytes)
@@ -59,8 +62,11 @@ class AACMSCache(CachePolicy):
         self.epoch_seconds = epoch_seconds
         self.hit_latency_ms = hit_latency_ms
         self.sample_size = sample_size
-        self.proactive_per_epoch = proactive_per_epoch
+        self.proactive_per_epoch = proactive_per_epoch if refresh else 0
         self.autoscale = autoscale
+        self.adapt_weights = adapt_weights
+        self.admission = admission
+        self.refresh_enabled = refresh
         self._rng = np.random.default_rng(seed)
 
         self._entries: dict[str, CacheEntry] = {}
@@ -155,6 +161,8 @@ class AACMSCache(CachePolicy):
     def should_refresh(self, entry: CacheEntry, now: float) -> bool:
         if not entry.is_stale(now):
             return False
+        if not self.refresh_enabled:         # ablation: plain blocking refresh
+            return True
         rp = refresh_priority(entry, now, self.refs, self.cfg.latency_usd_per_ms)
         if rp >= 0.15:                       # valuable + drift-prone -> block & refresh
             return True
@@ -186,7 +194,8 @@ class AACMSCache(CachePolicy):
             return True
 
         victims, freed, worst_val = self._plan_eviction(spec.size_bytes, now)
-        if freed >= spec.size_bytes and hypo_val >= worst_val * self._admit_margin:
+        admit = hypo_val >= worst_val * self._admit_margin or not self.admission
+        if freed >= spec.size_bytes and admit:
             for vk in victims:
                 self._evict(vk, now)
             self._insert(hypo, now)
@@ -247,14 +256,15 @@ class AACMSCache(CachePolicy):
         }
 
         # learn from the epoch that just ended, then pick the next arm
-        if self._epoch > 0:
-            reward = self.bandit.reward_from_epoch(
-                hit_rate,
-                norm_latency=avg_lat / max(self._latmax, 1e-9),
-                norm_cost=origin_cost / max(self._costmax, 1e-9),
-            )
-            self.bandit.learn(reward)
-        self.w = self.bandit.select(feats)
+        if self.adapt_weights:
+            if self._epoch > 0:
+                reward = self.bandit.reward_from_epoch(
+                    hit_rate,
+                    norm_latency=avg_lat / max(self._latmax, 1e-9),
+                    norm_cost=origin_cost / max(self._costmax, 1e-9),
+                )
+                self.bandit.learn(reward)
+            self.w = self.bandit.select(feats)
         self.regime = self.detector.update(feats)
 
         # recency horizon follows real reuse gaps
