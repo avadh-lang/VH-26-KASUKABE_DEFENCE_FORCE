@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "CACHE MIND — browser tier demo",
+  "version": "1.0.0",
+  "description": "The same 3-tier value-based caching idea from CACHE MIND, applied to real browser requests: memory (L1), chrome.storage (L2), IndexedDB (L3).",
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": ["storage", "unlimitedStorage"],
+  "host_permissions": ["https://jsonplaceholder.typicode.com/*"]
+}

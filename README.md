@@ -103,6 +103,14 @@ Every module imports only `common/interfaces.py`. Deep dives:
 [`docs/originality.md`](docs/originality.md) · [`docs/data-design.md`](docs/data-design.md) ·
 [`docs/demo-script.md`](docs/demo-script.md)
 
+## Bonus: the same idea in a browser
+
+[`chrome-extension/`](chrome-extension/) — a small proof-of-concept applying
+the same value-based, 3-tier placement idea to real browser storage
+(in-memory / `chrome.storage.local` / `IndexedDB`) instead of a simulated
+RAM/Redis/cold-store. Not a replacement for the main engine — see its own
+README for what's simplified and why.
+
 ## Team
 
 | Member | GitHub | Owns |

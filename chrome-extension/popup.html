@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>CACHE MIND</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <div class="brand-mark"><i></i><i></i><i></i></div>
+    <div>
+      <h1>CACHE MIND <span>browser demo</span></h1>
+      <div class="sub">same idea, real browser storage — L1 memory · L2 chrome.storage · L3 IndexedDB</div>
+    </div>
+  </header>
+
+  <div class="tiers" id="tiers"></div>
+
+  <div class="objects">
+    <div class="section-title">Demo objects — click to fetch (real network calls)</div>
+    <div class="grid" id="objectGrid"></div>
+  </div>
+
+  <div class="result" id="result">Fetch something above to see it flow through the tiers.</div>
+
+  <div class="section-title">Decision feed</div>
+  <div class="feed" id="feed"></div>
+
+  <button id="resetBtn" class="reset">Reset cache</button>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>
