@@ -95,6 +95,26 @@ class AccessPredictor:
             return float("inf")
         return max(t.last_t + t.gap_ewma - now, 0.0)
 
+    def access_pattern(self, key: str) -> str:
+        """
+        Classify this object's own access rhythm from its gap statistics —
+        no extra tracking needed, gap_ewma/gap_var are already kept per key.
+
+            periodic — low coefficient of variation: hit at near-regular intervals
+            bursty   — high variance, or a short-term rate far above the long-term one
+            random   — moderate variation (Poisson-like — most objects land here)
+            new      — not enough history yet
+        """
+        t = self._d.get(key)
+        if t is None or t.n < 3:
+            return "new"
+        cv = math.sqrt(max(t.gap_var, 0.0)) / max(t.gap_ewma, 1.0)
+        if t.short_rate > 3.0 * max(t.long_rate, 0.1) or cv > 1.5:
+            return "bursty"
+        if cv < 0.3:
+            return "periodic"
+        return "random"
+
     def hot_candidates(self, resident: set[str], now: float, k: int,
                        pool: list[str] | None = None) -> list[str]:
         """

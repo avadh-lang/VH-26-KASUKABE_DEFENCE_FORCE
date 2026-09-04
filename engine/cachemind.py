@@ -25,6 +25,7 @@ from common import (CacheEntry, CachePolicy, CostConfig, ObjectSpec, RequestOutc
                     L1, L2, L3)
 from engine.autoscaler import Autoscaler, GhostList
 from engine.bandit import LinUCBWeightController
+from engine.correlate import CoAccessTracker
 from engine.predict import AccessPredictor
 from engine.regime import RegimeDetector
 from engine.scoring import (ScoreRefs, best_tier, net_value_at_tier, refresh_priority,
@@ -91,6 +92,7 @@ class CacheMind(CachePolicy):
             caps = {L1: l1, L2: 0, L3: 0}
         self.store = TieredStore(caps)
         self.predictor = AccessPredictor()
+        self.correlate = CoAccessTracker()
 
         self._L = 0.0  # retained for signature compat; aging is now inside the gdsf term
         self._evictions = self._refreshes = 0
@@ -169,6 +171,7 @@ class CacheMind(CachePolicy):
             self._reuse_gap_ewma += 0.02 * ((now - prev) - self._reuse_gap_ewma)
         self._last_seen[entry.key] = now
         self.predictor.observe(entry.key, now)
+        self.correlate.observe(entry.key)
 
         entry.freq += 1
         entry.hits_since_refresh += 1
@@ -214,6 +217,7 @@ class CacheMind(CachePolicy):
             self.scaler.record_ghost_hit(size, regen)
 
         self.predictor.observe(spec.key, now)
+        self.correlate.observe(spec.key)
         self._recent_miss.append(spec.key)
         est_freq = 1 + int(self._demand.get(spec.key, 0))
         hypo = CacheEntry(spec, now, now, now, freq=est_freq)
@@ -451,10 +455,29 @@ class CacheMind(CachePolicy):
 
     def _pick_prefetch(self, now: float) -> list[str]:
         resident = {e.key for e in self.store.all_entries()}
-        pool = list(dict.fromkeys(self._recent_miss))       # recent misses, de-duped
+        # _recent_miss alone is nearly useless here: admission caches almost
+        # every miss immediately, so by the time this runs those keys are
+        # already resident. The ghost list (recently *evicted* keys) is the
+        # genuinely non-resident, previously-seen pool PREFETCH needs.
+        pool = list(dict.fromkeys(self.ghost.keys() + list(self._recent_miss)))
         cands = self.predictor.hot_candidates(resident, now, self.prefetch_per_epoch, pool=pool)
         for k in cands:
             self._note("prefetch", k, "predicted hot & not resident — warm from origin")
+
+        # correlation: a known partner of something currently hot in L1,
+        # even before the predictor independently flags the partner itself.
+        if len(cands) < self.prefetch_per_epoch:
+            hottest = sorted(self.store.entries(L1), key=lambda e: -e.freq)[:5]
+            for e in hottest:
+                for partner in self.correlate.partners(e.key, top=1):
+                    if partner in resident or partner in cands:
+                        continue
+                    cands.append(partner)
+                    self._note("prefetch", partner, f"co-accessed with hot {e.key}")
+                    if len(cands) >= self.prefetch_per_epoch:
+                        break
+                if len(cands) >= self.prefetch_per_epoch:
+                    break
         return cands
 
     def _pick_refresh(self, now: float) -> list[str]:
@@ -530,6 +553,9 @@ class CacheMind(CachePolicy):
     # -- dashboard ----------------------------------------------------- #
     def internals(self) -> dict:
         snap = self.bandit.snapshot()
+        patterns = {"periodic": 0, "bursty": 0, "random": 0, "new": 0}
+        for e in self.store.entries(L1):
+            patterns[self.predictor.access_pattern(e.key)] += 1
         return {
             "weights": snap["weights"], "bandit_arm": snap["arm"],
             "arm_pulls": snap["pulls"], "regime": self.regime,
@@ -537,6 +563,7 @@ class CacheMind(CachePolicy):
             "tiers": {f"L{t}": {"used": self.store.used(t), "cap": self.store.cap(t),
                                 "n": len(self.store.entries(t))} for t in (L1, L2, L3)},
             "decisions": list(self._feed)[-14:],
+            "l1_access_patterns": patterns,   # periodic/bursty/random mix of what's in L1 right now
         }
 
     def _note(self, action: str, key: str, reason: str) -> None:

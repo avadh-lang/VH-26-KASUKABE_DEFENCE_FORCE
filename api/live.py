@@ -126,6 +126,7 @@ class _PolicyRunner:
             snap["bandit_arm"] = intern.get("bandit_arm")
             snap["regime"] = intern.get("regime")
             snap["decisions"] = intern.get("decisions", [])[-7:]
+            snap["l1_access_patterns"] = intern.get("l1_access_patterns")
         return snap
 
 
