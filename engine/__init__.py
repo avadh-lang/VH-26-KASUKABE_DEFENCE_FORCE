@@ -1,17 +1,22 @@
 """
-AACMS engine — the adaptive, application-aware cache.
+CACHE MIND engine — the decision layer above a multi-level cache.
 
-    AACMSCache(capacity_bytes, cost_cfg, ...)  implements common.CachePolicy
+    CacheMind(capacity_bytes, cost_cfg, ...)   implements common.CachePolicy
 
 Pieces:
-  scoring.py     multi-factor value score for retain vs. evict
-  bandit.py      LinUCB contextual bandit that adapts the score weights at runtime
-  regime.py      lightweight workload-regime label (steady / spike / shift / cold)
-  autoscaler.py  cost-benefit cache-capacity controller with a ghost list
-  aacms.py       ties it together
+  tiers.py       L1/L2/L3 store — placement, byte accounting, promote/demote
+  predict.py     per-object access predictor (p_soon, trend, confidence, ETA)
+  scoring.py     keep-worthiness value + net-value-per-tier economics
+  bandit.py      LinUCB contextual bandit — adapts the score weights at runtime
+  regime.py      lightweight workload-regime label
+  autoscaler.py  cost-benefit tier-capacity controller with a ghost list
+  cachemind.py   the 11-step epoch loop that ties it together
 """
 
-from engine.aacms import AACMSCache, WEIGHT_ARMS
+from engine.cachemind import CacheMind, WEIGHT_ARMS
 from engine.scoring import WEIGHT_KEYS
 
-__all__ = ["AACMSCache", "WEIGHT_ARMS", "WEIGHT_KEYS"]
+# backwards-compat alias (older imports / tests)
+AACMSCache = CacheMind
+
+__all__ = ["CacheMind", "AACMSCache", "WEIGHT_ARMS", "WEIGHT_KEYS"]

@@ -1,4 +1,4 @@
-# AACMS — Data Design
+# CACHE MIND — Data Design
 
 Three data surfaces, each with a deliberate schema:
 
@@ -30,7 +30,7 @@ Rationale for the shape (not the exact numbers — those are tunable in
   large low-value objects evict hundreds of small high-value ones.
 - **Bimodal regeneration cost** — the PS's core example ("2 s + $0.01 to
   regenerate vs. instant and free"). If cost were unimodal, cost-awareness would
-  barely matter; the bimodality is what separates AACMS from LRU/LFU.
+  barely matter; the bimodality is what separates CACHE MIND from LRU/LFU.
 - **Cost/latency correlation** — an object that's slow to rebuild is usually also
   the one that costs money (external API, GPU). Modelled with a shared
   `is_expensive` draw.
@@ -97,7 +97,7 @@ persisted — it's an explainability stream, not state.
 
 ---
 
-## 3. Output data — `results/aacms.db` (SQLite)
+## 3. Output data — `results/cachemind.db` (SQLite)
 
 Normalised on `run_id`:
 
@@ -139,7 +139,7 @@ WHERE l.rn = 1 ORDER BY l.scenario, l.cost_total;
 `python -m benchmark.store --profile api` prints exactly this.
 
 The `epochs` table is the important one for judging: it lets us show *when*
-AACMS pulls ahead (the gap widens during the spike), which weight the bandit
+CACHE MIND pulls ahead (the gap widens during the spike), which weight the bandit
 picked at each moment, and the autoscaler's capacity trajectory — not just a
 single end-of-run number.
 

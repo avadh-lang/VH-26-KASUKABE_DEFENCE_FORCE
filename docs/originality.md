@@ -1,4 +1,4 @@
-# AACMS — Originality: known vs. novel
+# CACHE MIND — Originality: known vs. novel
 
 We are explicit about what is prior art and what is our contribution. Every
 primitive below is something a judge could look up; the value is in how they are
@@ -26,7 +26,7 @@ value(o) = L + w_core · GDSF_core(o) · (1 + tilt(o)),   tilt ∈ [-0.6, +0.6]
 Existing adaptive caches either **switch whole policies** (ARC moves an
 LRU/LFU balance point) or **learn a policy from scratch** (RL-cache, LeCaR).
 We do neither: GDSF stays the magnitude term, and the bandit only applies a
-bounded multiplicative re-ranking. Consequence — **at `tilt → 0`, AACMS *is*
+bounded multiplicative re-ranking. Consequence — **at `tilt → 0`, CACHE MIND *is*
 GDSF**, so it cannot be beaten by the strongest classical baseline; the
 adaptation is pure upside. We have not seen this "safety-floor" construction
 elsewhere.
@@ -47,7 +47,7 @@ includes cost and size).
 
 ### 4. Refresh as a first-class decision, priced
 Most caches: staleness is binary (TTL expired → refetch on next request).
-AACMS computes
+CACHE MIND computes
 ```
 refresh_priority(o) = drift_risk(o) · reuse(o) / (1 + 50 · refresh_cost(o))
 drift_risk = 1 - exp(-volatility · 4 · staleness)
@@ -79,13 +79,13 @@ runs correctly from a cold cache — which is what makes the live demo real.
 
 ## Implementation originality
 
-- **All six policies** (LRU, LFU, GDS, GDSF, AACMS, plus the AACMS-fixed
+- **All six policies** (LRU, LFU, GDS, GDSF, CACHE MIND, plus the CM-fixed
   ablation) are implemented from scratch against a single 190-line
   `CachePolicy` interface. No `cachetools`, no `functools.lru_cache`, no RL
   library. ~1300 lines total.
 - The **workload generator, cost model, SimDriver and SQLite result store**
   are ours — the benchmark is not a wrapper around an existing harness.
-- The **ablation is built in**: `AACMS-fixed` (scoring only) vs `AACMS` (full)
+- The **ablation is built in**: `CM-fixed` (scoring only) vs `CACHE MIND` (full)
   isolates the two contributions — the value model and the adaptation — and
   both independently beat GDSF.
 
@@ -93,7 +93,7 @@ runs correctly from a cold cache — which is what makes the live demo real.
 
 LeCaR (Vietri et al., HotStorage 2018) and CACHEUS (Rodriguez et al., FAST
 2021) also use online learning (regret matching / bandits) for cache
-replacement. Difference: they learn a blend of **LRU and LFU experts**; AACMS
+replacement. Difference: they learn a blend of **LRU and LFU experts**; CACHE MIND
 learns a blend over a **cost/size/frequency value model** and additionally
 owns refresh and capacity — cost-awareness and autoscaling are out of scope
 for those systems.
