@@ -45,7 +45,7 @@ export function SurgeFader({
   return (
     <div className={`surge ${disabled ? "disabled" : ""}`} title="Drag to raise simulated traffic — a live surge, not a preset">
       <div className="surge-label">
-        <span>⚡ SURGE</span>
+        <span>SURGE</span>
         <b>{value.toFixed(1)}x</b>
       </div>
       <div

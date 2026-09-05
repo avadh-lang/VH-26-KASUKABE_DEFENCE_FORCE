@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Frame, Meta, PolicySnap, RealPing, getMeta, injectSpike, pingReal, setScenario, setSurge, startSim, stopSim, streamSim,
+  Decision, Frame, Meta, PolicySnap, RealPing, getMeta, injectSpike, pingReal, setScenario, setSurge, startSim, stopSim, streamSim,
 } from "./api";
 import { COLORS, MultiLine, TierBars } from "./components/Charts";
 import { CacheGrid } from "./components/CacheGrid";
+import { DecisionExplain } from "./components/DecisionExplain";
 import { SurgeFader } from "./components/SurgeFader";
 
 const DEFAULT_POLICIES = ["LRU", "LFU", "GDS", "GDSF", "CACHE MIND"];
@@ -19,6 +20,7 @@ export default function App() {
   const [spikeMarks, setSpikeMarks] = useState<number[]>([]);
   const [ping, setPing] = useState<RealPing | "loading" | null>(null);
   const [surge, setSurgeState] = useState(1);
+  const [lastExplain, setLastExplain] = useState<Decision | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const wasSpiking = useRef(false);
   const surgeSendRef = useRef<{ t: number; timer: ReturnType<typeof setTimeout> | null }>({ t: 0, timer: null });
@@ -33,13 +35,20 @@ export default function App() {
 
   async function start() {
     stop();
-    setFrames([]); setSpikeMarks([]); wasSpiking.current = false;
+    setFrames([]); setSpikeMarks([]); wasSpiking.current = false; setLastExplain(null);
     const { run_id } = await startSim({ scenario, profile, policies: DEFAULT_POLICIES, speed });
     setRunId(run_id);
     esRef.current = streamSim(run_id, (f) => {
       if (f.spike_active && !wasSpiking.current) setSpikeMarks((m) => [...m, f.epoch]);
       wasSpiking.current = f.spike_active;
       setFrames((prev) => (prev.length > 240 ? [...prev.slice(-240), f] : [...prev, f]));
+      // refresh/prefetch notes are so frequent they'd otherwise crowd a rarer
+      // eviction or tier-move out of the small per-frame decisions window
+      // before anyone saw it — so remember the latest explainable one here,
+      // independent of what's currently in that window.
+      const cm = f.policies.find((p) => p.policy === ME);
+      const withExplain = [...(cm?.decisions ?? [])].reverse().find((d) => d.explain);
+      if (withExplain) setLastExplain(withExplain);
     });
   }
   function stop() {
@@ -119,9 +128,9 @@ export default function App() {
                    : <button className="primary" onClick={start}>Start</button>}
           <SurgeFader value={surge} onChange={onSurge} disabled={!running} />
           <button className="spike" disabled={!running} onClick={() => runId && injectSpike(runId)}>
-            ⚡ Inject spike
+            Inject spike
           </button>
-          <button className="ping" onClick={doPing}>🌐 Ping real API</button>
+          <button className="ping" onClick={doPing}>Ping real API</button>
         </div>
       </header>
 
@@ -159,22 +168,22 @@ export default function App() {
         <>
           <div className="grid">
             <div className="card hero">
-              <div className="k">💰 CACHE MIND cost saving vs LRU</div>
+              <div className="k">CACHE MIND cost saving vs LRU</div>
               <div className="v">{saving?.saving_pct ?? 0}%</div>
               <div className="foot">${saving?.saving_vs_baseline?.toFixed(4) ?? 0} saved so far</div>
             </div>
             <div className="card">
-              <div className="k">⚡ avg latency</div>
+              <div className="k">avg latency</div>
               <div className="v">{(me?.avg_latency_ms ?? 0).toFixed(1)} ms</div>
               <div className="foot">GDSF {(gdsf?.avg_latency_ms ?? 0).toFixed(0)} ms · LRU {(lru?.avg_latency_ms ?? 0).toFixed(0)} ms</div>
             </div>
             <div className="card">
-              <div className="k">🧊 served from warm tiers</div>
+              <div className="k">served from warm tiers</div>
               <div className="v">{(warm * 100).toFixed(0)}%</div>
               <div className="foot">L1 {((me?.l1_rate ?? 0) * 100).toFixed(0)}% · single-tier caches miss these to origin</div>
             </div>
             <div className="card">
-              <div className="k">🧭 detected regime</div>
+              <div className="k">detected regime</div>
               <div className={`v ${latest.spike_active ? "bad" : ""}`} style={latest.spike_active ? undefined : { color: "var(--text)" }}>
                 {me?.regime ?? "—"}
               </div>
@@ -219,6 +228,14 @@ export default function App() {
               <span className="hint">colour = access pattern</span>
             </div>
             <CacheGrid sample={me?.sample} />
+          </div>
+
+          <div className="chart-card" style={{ marginTop: 14 }}>
+            <div className="chart-title">
+              Why — the reasoning behind the latest decision
+              <span className="hint">real signals, not a placeholder</span>
+            </div>
+            <DecisionExplain decision={lastExplain} />
           </div>
 
           <div className="panels">

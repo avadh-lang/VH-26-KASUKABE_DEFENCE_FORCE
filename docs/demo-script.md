@@ -86,7 +86,7 @@ roughly every second on screen) build up.
 
 ### 2:20 — Live: the traffic spike (60s)
 
-Press **⚡ Inject traffic spike**.
+Press **Inject traffic spike**.
 
 > "This simulates a flash crowd — something that was ice-cold suddenly gets
 > hammered by 3x normal traffic, the way a post going viral would hit a real

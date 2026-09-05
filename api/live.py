@@ -125,7 +125,7 @@ class _PolicyRunner:
             snap["weights"] = intern.get("weights")
             snap["bandit_arm"] = intern.get("bandit_arm")
             snap["regime"] = intern.get("regime")
-            snap["decisions"] = intern.get("decisions", [])[-7:]
+            snap["decisions"] = intern.get("decisions", [])[-12:]
             snap["l1_access_patterns"] = intern.get("l1_access_patterns")
         sample = getattr(self.p, "sample", None)
         if sample:

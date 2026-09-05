@@ -65,7 +65,7 @@ export function MultiLine({
         />
         {(markers ?? []).map((m, i) => (
           <ReferenceLine key={i} x={m} stroke="#f28b82" strokeDasharray="3 3" strokeOpacity={0.7}
-            label={{ value: "⚡", position: "top", fill: "#f28b82" }} />
+            label={{ value: "spike", position: "top", fill: "#f28b82", fontSize: 9 }} />
         ))}
         {keys.includes(hero) && (
           <Area type="monotone" dataKey={hero} stroke="none" fill="url(#heroFill)"

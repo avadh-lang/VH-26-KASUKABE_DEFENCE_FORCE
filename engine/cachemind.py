@@ -228,7 +228,8 @@ class CacheMind(CachePolicy):
         if not self.tiering:
             bt = L1
         if bt == 0:
-            self._note("evict", spec.key, "negative net value at every tier — don't cache")
+            self._note("evict", spec.key, "negative net value at every tier — don't cache",
+                       entry=hypo, now=now)
             return False
 
         # admission control (optional): a lukewarm newcomer may not displace
@@ -391,9 +392,9 @@ class CacheMind(CachePolicy):
                         self._move(victim.key, ct, now, "demote — cooling")
                         break
                 else:
-                    self._evict(victim.key, now)
+                    self._evict(victim.key, now, "no colder tier profits either — nowhere left to go")
             else:
-                self._evict(victim.key, now)
+                self._evict(victim.key, now, "already coldest tier — no value in holding it")
         return self.store.fits(tier, need)
 
     def _move(self, key: str, to_tier: int, now: float, why: str) -> None:
@@ -408,9 +409,9 @@ class CacheMind(CachePolicy):
             self._promotions += 1
         else:
             self._demotions += 1
-        self._note(f"L{frm}->L{to_tier}", key, why)
+        self._note(f"L{frm}->L{to_tier}", key, why, entry=e, now=now)
 
-    def _evict(self, key: str, now: float) -> None:
+    def _evict(self, key: str, now: float, why: str = "negative value at every tier") -> None:
         e = self.store.remove(key)
         if e is None:
             return
@@ -418,6 +419,7 @@ class CacheMind(CachePolicy):
         self._ep_evict += 1
         regen = e.spec.gen_cost_usd + self.cfg.latency_usd_per_ms * e.spec.gen_latency_ms
         self.ghost.add(key, e.full_size_bytes, regen)
+        self._note("evict", key, why, entry=e, now=now)
 
     def _rebalance(self, now: float) -> None:
         """
@@ -432,7 +434,7 @@ class CacheMind(CachePolicy):
             cur_nv = net_value_at_tier(e, e.tier, 0.0, eh, horizon, self.cfg)
             bt, bt_nv = best_tier(e, eh, horizon, self.cfg)
             if bt == 0 and e.tier == L3:
-                self._evict(e.key, now)                     # dead & already coldest
+                self._evict(e.key, now, "dead in the coldest tier — regeneration is now cheaper than holding it")
             elif bt != 0 and bt < e.tier and bt_nv > cur_nv * 1.25 + 1e-9:
                 promote.append((bt_nv - cur_nv, e.key, bt))
 
@@ -588,8 +590,26 @@ class CacheMind(CachePolicy):
                 })
         return out
 
-    def _note(self, action: str, key: str, reason: str) -> None:
-        self._feed.append({"epoch": self._epoch, "action": action, "key": key, "reason": reason})
+    def _note(self, action: str, key: str, reason: str,
+              entry: CacheEntry | None = None, now: float | None = None) -> None:
+        item = {"epoch": self._epoch, "action": action, "key": key, "reason": reason}
+        if entry is not None and now is not None:
+            item["explain"] = self._explain_entry(entry, now)
+        self._feed.append(item)
+
+    def _explain_entry(self, e: CacheEntry, now: float) -> dict:
+        """The real numbers behind one decision — for a human-readable
+        'why' panel, not used in any decision itself."""
+        return {
+            "p_soon": round(self.predictor.p_soon(e.key, now), 3),
+            "confidence": round(self.predictor.confidence(e.key), 2),
+            "regen_ms": round(e.spec.gen_latency_ms, 1),
+            "regen_usd": round(e.spec.gen_cost_usd, 5),
+            "size_kb": round(e.full_size_bytes / 1024.0, 1),
+            "freshness": round(1.0 - min(e.staleness(now), 1.0), 3),
+            "trend": round(self.predictor.trend(e.key), 2),
+            "score": round(self._val(e, now), 2),
+        }
 
 
 def _cost_ms(spec: ObjectSpec, latency_usd_per_ms: float) -> float:

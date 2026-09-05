@@ -1,5 +1,11 @@
 export type Tier = { tier: string; used_mb: number; cap_mb: number };
 
+export type Explain = {
+  p_soon: number; confidence: number; regen_ms: number; regen_usd: number;
+  size_kb: number; freshness: number; trend: number; score: number;
+};
+export type Decision = { epoch: number; action: string; key: string; reason: string; explain?: Explain };
+
 export type PolicySnap = {
   policy: string;
   hit_rate: number;
@@ -20,7 +26,7 @@ export type PolicySnap = {
   weights?: Record<string, number>;
   bandit_arm?: string;
   regime?: string;
-  decisions?: { epoch: number; action: string; key: string; reason: string }[];
+  decisions?: Decision[];
   l1_access_patterns?: { periodic: number; bursty: number; random: number; new: number };
   sample?: { key: string; tier: string; size_kb: number; freq: number; pattern: string; value: number }[];
 };
