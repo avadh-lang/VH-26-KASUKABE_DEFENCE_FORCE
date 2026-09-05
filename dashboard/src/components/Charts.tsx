@@ -69,7 +69,7 @@ export function MultiLine({
         ))}
         {keys.includes(hero) && (
           <Area type="monotone" dataKey={hero} stroke="none" fill="url(#heroFill)"
-            isAnimationActive={false} activeDot={false} legendType="none" />
+            isAnimationActive={false} activeDot={false} legendType="none" tooltipType="none" />
         )}
         {heroFirst.map((k) => (
           <Line key={k} type="monotone" dataKey={k} stroke={COLORS[k] ?? "#ccc"}
