@@ -37,7 +37,9 @@ h1 span { color: var(--muted); font-weight: 400; font-size: 11px; }
   padding: 6px 0; font-size: 11px; font-family: var(--mono); cursor: pointer;
 }
 .grid button:hover { border-color: var(--muted-dim); }
+.grid button:focus, .grid button:focus-visible { outline: none; border-color: var(--muted-dim); }
 .grid button.hit { border-color: var(--good); color: var(--good); }
+.grid button.hit:focus, .grid button.hit:focus-visible { border-color: var(--good); }
 
 .result {
   margin-top: 10px; padding: 9px 10px; border-radius: 8px;
@@ -65,3 +67,4 @@ h1 span { color: var(--muted); font-weight: 400; font-size: 11px; }
   border: 1px solid var(--line); border-radius: 6px; font-size: 11px; cursor: pointer;
 }
 .reset:hover { color: var(--accent); border-color: var(--accent); }
+.reset:focus, .reset:focus-visible { outline: none; border-color: var(--accent); }
