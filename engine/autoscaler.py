@@ -38,6 +38,11 @@ class GhostList:
         v = self._d.pop(key, None)
         return v
 
+    def keys(self) -> list[str]:
+        """Recently-evicted keys — genuinely non-resident, previously-seen.
+        The PREFETCH candidate pool needs exactly this set."""
+        return list(self._d.keys())
+
     def __len__(self) -> int:
         return len(self._d)
 

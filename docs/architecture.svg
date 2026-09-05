@@ -24,7 +24,7 @@
   <text x="40" y="86" class="grp">WORKLOAD/</text>
   <rect rx="9" class="box data" x="40" y="94" width="230" height="78"/>
   <text x="54" y="116" class="lbl">Traffic generator</text>
-  <text x="54" y="134" class="sub">api · recsys profiles</text>
+  <text x="54" y="134" class="sub">api · recsys · real (live API)</text>
   <text x="54" y="150" class="sub">6 scenarios: steady · spike · shift</text>
   <text x="54" y="164" class="sub">diurnal · cold_start · regime_flip</text>
 
@@ -104,7 +104,7 @@
   <text x="54" y="470" class="lbl">EpochSnapshot rows → cachemind.db (SQLite)</text>
   <text x="54" y="488" class="sub">REPORT_*.md · ABLATION · SENSITIVITY · charts</text>
   <text x="54" y="505" class="sub">FastAPI + SSE live sim → React dashboard (tiers · cost · latency · decisions)</text>
-  <text x="54" y="520" class="note">baseline policies run in parallel = live counterfactuals</text>
+  <text x="54" y="520" class="note">+ drag-surge control · live cache-object grid · "why" decision explain</text>
 
   <!-- results strip -->
   <rect rx="10" class="box eng" x="40" y="556" width="1120" height="180"/>
@@ -116,6 +116,7 @@
   <text x="56" y="680" class="sub">  regime-flip cost $  328      159.3             53.5                        28.5    (−82 % · −47 %)</text>
   <text x="56" y="702" class="sub">  p95 latency       426 ms   23–155 ms         9–22 ms                    6 ms flat</text>
   <text x="56" y="722" class="note">ablation: tiering (warm hits vs origin misses) + smart refresh (serve-stale now, background-refresh next epoch) each ~double cost when removed</text>
+  <text x="56" y="750" class="note">bonus (outside this box): chrome-extension/ applies the same value-based placement idea to real browser storage — memory · chrome.storage.local · IndexedDB</text>
 
   <!-- flows -->
   <path class="flow" d="M155 172 L155 218"/>

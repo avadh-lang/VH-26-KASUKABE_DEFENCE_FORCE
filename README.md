@@ -101,7 +101,15 @@ api/  FastAPI + SSE live simulator  ──►  dashboard/  React — tiers, cost
 Every module imports only `common/interfaces.py`. Deep dives:
 [`docs/PROJECT.md`](docs/PROJECT.md) · [`docs/architecture.md`](docs/architecture.md) ·
 [`docs/originality.md`](docs/originality.md) · [`docs/data-design.md`](docs/data-design.md) ·
-[`docs/demo-script.md`](docs/demo-script.md)
+[`docs/demo-script.md`](docs/demo-script.md) · [`docs/latest-update.md`](docs/latest-update.md)
+
+## Bonus: the same idea in a browser
+
+[`chrome-extension/`](chrome-extension/) — a small proof-of-concept applying
+the same value-based, 3-tier placement idea to real browser storage
+(in-memory / `chrome.storage.local` / `IndexedDB`) instead of a simulated
+RAM/Redis/cold-store. Not a replacement for the main engine — see its own
+README for what's simplified and why.
 
 ## Team
 

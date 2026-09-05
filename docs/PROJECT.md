@@ -208,7 +208,7 @@ update weights + τ + normalisers.
 `inject_spike` triggers a flash crowd mid-demo. SSE streams one JSON frame per
 epoch: per-policy hit rates **by tier**, cost breakdown, tier occupancy, the
 decision feed and bandit weights. The React dashboard shows all of it live plus
-an **⚡ Inject traffic spike** button.
+an **Inject traffic spike** button.
 
 ## 10. `tests/` — 32 tests (Avadh)
 Tiered store mechanics · compression accounting · value ordering · tier

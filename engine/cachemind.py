@@ -25,6 +25,7 @@ from common import (CacheEntry, CachePolicy, CostConfig, ObjectSpec, RequestOutc
                     L1, L2, L3)
 from engine.autoscaler import Autoscaler, GhostList
 from engine.bandit import LinUCBWeightController
+from engine.correlate import CoAccessTracker
 from engine.predict import AccessPredictor
 from engine.regime import RegimeDetector
 from engine.scoring import (ScoreRefs, best_tier, net_value_at_tier, refresh_priority,
@@ -91,6 +92,7 @@ class CacheMind(CachePolicy):
             caps = {L1: l1, L2: 0, L3: 0}
         self.store = TieredStore(caps)
         self.predictor = AccessPredictor()
+        self.correlate = CoAccessTracker()
 
         self._L = 0.0  # retained for signature compat; aging is now inside the gdsf term
         self._evictions = self._refreshes = 0
@@ -169,6 +171,7 @@ class CacheMind(CachePolicy):
             self._reuse_gap_ewma += 0.02 * ((now - prev) - self._reuse_gap_ewma)
         self._last_seen[entry.key] = now
         self.predictor.observe(entry.key, now)
+        self.correlate.observe(entry.key)
 
         entry.freq += 1
         entry.hits_since_refresh += 1
@@ -214,6 +217,7 @@ class CacheMind(CachePolicy):
             self.scaler.record_ghost_hit(size, regen)
 
         self.predictor.observe(spec.key, now)
+        self.correlate.observe(spec.key)
         self._recent_miss.append(spec.key)
         est_freq = 1 + int(self._demand.get(spec.key, 0))
         hypo = CacheEntry(spec, now, now, now, freq=est_freq)
@@ -224,7 +228,8 @@ class CacheMind(CachePolicy):
         if not self.tiering:
             bt = L1
         if bt == 0:
-            self._note("evict", spec.key, "negative net value at every tier — don't cache")
+            self._note("evict", spec.key, "negative net value at every tier — don't cache",
+                       entry=hypo, now=now)
             return False
 
         # admission control (optional): a lukewarm newcomer may not displace
@@ -387,9 +392,9 @@ class CacheMind(CachePolicy):
                         self._move(victim.key, ct, now, "demote — cooling")
                         break
                 else:
-                    self._evict(victim.key, now)
+                    self._evict(victim.key, now, "no colder tier profits either — nowhere left to go")
             else:
-                self._evict(victim.key, now)
+                self._evict(victim.key, now, "already coldest tier — no value in holding it")
         return self.store.fits(tier, need)
 
     def _move(self, key: str, to_tier: int, now: float, why: str) -> None:
@@ -404,9 +409,9 @@ class CacheMind(CachePolicy):
             self._promotions += 1
         else:
             self._demotions += 1
-        self._note(f"L{frm}->L{to_tier}", key, why)
+        self._note(f"L{frm}->L{to_tier}", key, why, entry=e, now=now)
 
-    def _evict(self, key: str, now: float) -> None:
+    def _evict(self, key: str, now: float, why: str = "negative value at every tier") -> None:
         e = self.store.remove(key)
         if e is None:
             return
@@ -414,6 +419,7 @@ class CacheMind(CachePolicy):
         self._ep_evict += 1
         regen = e.spec.gen_cost_usd + self.cfg.latency_usd_per_ms * e.spec.gen_latency_ms
         self.ghost.add(key, e.full_size_bytes, regen)
+        self._note("evict", key, why, entry=e, now=now)
 
     def _rebalance(self, now: float) -> None:
         """
@@ -428,7 +434,7 @@ class CacheMind(CachePolicy):
             cur_nv = net_value_at_tier(e, e.tier, 0.0, eh, horizon, self.cfg)
             bt, bt_nv = best_tier(e, eh, horizon, self.cfg)
             if bt == 0 and e.tier == L3:
-                self._evict(e.key, now)                     # dead & already coldest
+                self._evict(e.key, now, "dead in the coldest tier — regeneration is now cheaper than holding it")
             elif bt != 0 and bt < e.tier and bt_nv > cur_nv * 1.25 + 1e-9:
                 promote.append((bt_nv - cur_nv, e.key, bt))
 
@@ -451,10 +457,29 @@ class CacheMind(CachePolicy):
 
     def _pick_prefetch(self, now: float) -> list[str]:
         resident = {e.key for e in self.store.all_entries()}
-        pool = list(dict.fromkeys(self._recent_miss))       # recent misses, de-duped
+        # _recent_miss alone is nearly useless here: admission caches almost
+        # every miss immediately, so by the time this runs those keys are
+        # already resident. The ghost list (recently *evicted* keys) is the
+        # genuinely non-resident, previously-seen pool PREFETCH needs.
+        pool = list(dict.fromkeys(self.ghost.keys() + list(self._recent_miss)))
         cands = self.predictor.hot_candidates(resident, now, self.prefetch_per_epoch, pool=pool)
         for k in cands:
             self._note("prefetch", k, "predicted hot & not resident — warm from origin")
+
+        # correlation: a known partner of something currently hot in L1,
+        # even before the predictor independently flags the partner itself.
+        if len(cands) < self.prefetch_per_epoch:
+            hottest = sorted(self.store.entries(L1), key=lambda e: -e.freq)[:5]
+            for e in hottest:
+                for partner in self.correlate.partners(e.key, top=1):
+                    if partner in resident or partner in cands:
+                        continue
+                    cands.append(partner)
+                    self._note("prefetch", partner, f"co-accessed with hot {e.key}")
+                    if len(cands) >= self.prefetch_per_epoch:
+                        break
+                if len(cands) >= self.prefetch_per_epoch:
+                    break
         return cands
 
     def _pick_refresh(self, now: float) -> list[str]:
@@ -530,6 +555,9 @@ class CacheMind(CachePolicy):
     # -- dashboard ----------------------------------------------------- #
     def internals(self) -> dict:
         snap = self.bandit.snapshot()
+        patterns = {"periodic": 0, "bursty": 0, "random": 0, "new": 0}
+        for e in self.store.entries(L1):
+            patterns[self.predictor.access_pattern(e.key)] += 1
         return {
             "weights": snap["weights"], "bandit_arm": snap["arm"],
             "arm_pulls": snap["pulls"], "regime": self.regime,
@@ -537,10 +565,51 @@ class CacheMind(CachePolicy):
             "tiers": {f"L{t}": {"used": self.store.used(t), "cap": self.store.cap(t),
                                 "n": len(self.store.entries(t))} for t in (L1, L2, L3)},
             "decisions": list(self._feed)[-14:],
+            "l1_access_patterns": patterns,   # periodic/bursty/random mix of what's in L1 right now
         }
 
-    def _note(self, action: str, key: str, reason: str) -> None:
-        self._feed.append({"epoch": self._epoch, "action": action, "key": key, "reason": reason})
+    def sample(self, now: float, per_tier: int = 10) -> list[dict]:
+        """
+        A bounded snapshot of what's actually resident right now, for a live
+        "objects entering/leaving the cache" visualisation — not used in any
+        decision, purely observational. Picks the highest-value entries per
+        tier (the ones a viewer would recognise reappearing epoch to epoch)
+        rather than an arbitrary/unstable ordering.
+        """
+        out: list[dict] = []
+        for t in (L1, L2, L3):
+            entries = sorted(self.store.entries(t), key=lambda e: -self._val(e, now))[:per_tier]
+            for e in entries:
+                out.append({
+                    "key": e.key,
+                    "tier": f"L{t}",
+                    "size_kb": round(e.full_size_bytes / 1024.0, 1),
+                    "freq": e.freq,
+                    "pattern": self.predictor.access_pattern(e.key),
+                    "value": round(self._val(e, now), 2),
+                })
+        return out
+
+    def _note(self, action: str, key: str, reason: str,
+              entry: CacheEntry | None = None, now: float | None = None) -> None:
+        item = {"epoch": self._epoch, "action": action, "key": key, "reason": reason}
+        if entry is not None and now is not None:
+            item["explain"] = self._explain_entry(entry, now)
+        self._feed.append(item)
+
+    def _explain_entry(self, e: CacheEntry, now: float) -> dict:
+        """The real numbers behind one decision — for a human-readable
+        'why' panel, not used in any decision itself."""
+        return {
+            "p_soon": round(self.predictor.p_soon(e.key, now), 3),
+            "confidence": round(self.predictor.confidence(e.key), 2),
+            "regen_ms": round(e.spec.gen_latency_ms, 1),
+            "regen_usd": round(e.spec.gen_cost_usd, 5),
+            "size_kb": round(e.full_size_bytes / 1024.0, 1),
+            "freshness": round(1.0 - min(e.staleness(now), 1.0), 3),
+            "trend": round(self.predictor.trend(e.key), 2),
+            "score": round(self._val(e, now), 2),
+        }
 
 
 def _cost_ms(spec: ObjectSpec, latency_usd_per_ms: float) -> float:

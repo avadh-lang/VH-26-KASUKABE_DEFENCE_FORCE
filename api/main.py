@@ -46,6 +46,10 @@ class ScenarioReq(BaseModel):
     scenario: str
 
 
+class SurgeReq(BaseModel):
+    mult: float   # 1.0 = normal traffic, up to 6.0 = full flash-crowd drag
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {"ok": True, "sims": len(_SIMS)}
@@ -93,6 +97,15 @@ def _sim(run_id: str) -> LiveSim:
 def spike(run_id: str) -> dict:
     _sim(run_id).inject_spike()
     return {"ok": True, "msg": "flash crowd injected for the next few epochs"}
+
+
+@app.post("/api/sim/{run_id}/surge")
+def surge(run_id: str, req: SurgeReq) -> dict:
+    """Continuous surge control — dragged live from the dashboard's fader,
+    not a fixed preset. mult=1 is normal traffic; mult>2 also promotes a
+    batch of cold objects, so a big drag looks like a real flash crowd."""
+    _sim(run_id).set_surge(req.mult)
+    return {"ok": True, "mult": req.mult}
 
 
 @app.post("/api/sim/{run_id}/scenario")

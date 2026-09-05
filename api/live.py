@@ -125,7 +125,11 @@ class _PolicyRunner:
             snap["weights"] = intern.get("weights")
             snap["bandit_arm"] = intern.get("bandit_arm")
             snap["regime"] = intern.get("regime")
-            snap["decisions"] = intern.get("decisions", [])[-7:]
+            snap["decisions"] = intern.get("decisions", [])[-12:]
+            snap["l1_access_patterns"] = intern.get("l1_access_patterns")
+        sample = getattr(self.p, "sample", None)
+        if sample:
+            snap["sample"] = sample(t)
         return snap
 
 
@@ -178,6 +182,7 @@ class LiveSim:
         self.t = 0.0
         self._spike_epochs = 0
         self._spike_targets: np.ndarray | None = None
+        self._surge_mult = 1.0   # continuous, user-driven — the dashboard's drag fader
 
     def inject_spike(self, epochs: int = 6, hot: int = 25) -> None:
         cold = self.order[int(0.75 * self.n):]
@@ -187,8 +192,18 @@ class LiveSim:
     def set_scenario(self, scenario: str) -> None:
         self.scenario = scenario
 
+    def set_surge(self, mult: float) -> None:
+        """Continuous surge control (1x-6x) — dragged live from the dashboard,
+        not a fixed preset like inject_spike. Also nudges cold objects hot
+        past 2x so a big drag genuinely looks like a flash crowd, not just a
+        louder version of the same traffic."""
+        self._surge_mult = max(1.0, min(mult, 6.0))
+        if self._surge_mult > 2.0 and self._spike_targets is None:
+            cold = self.order[int(0.75 * self.n):]
+            self._spike_targets = self._rng.choice(cold, size=min(25, len(cold)), replace=False)
+
     def _epoch_rate(self) -> float:
-        r = self.base_rate
+        r = self.base_rate * self._surge_mult
         if self._spike_epochs > 0 or self.scenario == "spike":
             r *= 3.0 if self._spike_epochs > 0 else 1.0
         if self.scenario == "diurnal":
@@ -199,7 +214,7 @@ class LiveSim:
         rate = self._epoch_rate()
         k = int(self._rng.poisson(rate))
         cur = self.order
-        if self._spike_epochs > 0 and self._spike_targets is not None:
+        if (self._spike_epochs > 0 or self._surge_mult > 2.0) and self._spike_targets is not None:
             cur = self.order.copy()
             cur[: len(self._spike_targets)] = self._spike_targets
 
@@ -231,7 +246,8 @@ class LiveSim:
 
         out = {
             "epoch": self.epoch, "t": round(self.t, 1), "rate": round(rate, 1),
-            "spike_active": self._spike_epochs > 0 or self.scenario == "spike",
+            "spike_active": self._spike_epochs > 0 or self.scenario == "spike" or self._surge_mult > 2.0,
+            "surge_mult": round(self._surge_mult, 2),
             "scenario": self.scenario, "policies": snaps,
             "cost_report": self.ledger.report(),
         }
