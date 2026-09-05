@@ -9,22 +9,33 @@
   <header>
     <div class="brand-mark"><i></i><i></i><i></i></div>
     <div>
-      <h1>CACHE MIND <span>browser demo</span></h1>
-      <div class="sub">same idea, real browser storage — L1 memory · L2 chrome.storage · L3 IndexedDB</div>
+      <h1>CACHE MIND <span>live browser cache</span></h1>
+      <div class="sub">L1 memory · L2 chrome.storage · L3 IndexedDB — caches real GET traffic on every site you visit</div>
     </div>
   </header>
 
+  <div class="livewrap">
+    <label class="toggle">
+      <input type="checkbox" id="liveToggle" />
+      <span class="tglTrack"><span class="tglThumb"></span></span>
+    </label>
+    <div class="livetext">
+      <div class="livetitle" id="liveTitle">Live caching</div>
+      <div class="livesub" id="liveSub">checking status…</div>
+    </div>
+  </div>
+
   <div class="tiers" id="tiers"></div>
 
+  <div class="section-title">Decision feed — real requests from whatever tab you're on</div>
+  <div class="feed" id="feed"></div>
+
   <div class="objects">
-    <div class="section-title">Demo objects — click to fetch (real network calls)</div>
+    <div class="section-title">Manual test (always works, uses a public test API)</div>
     <div class="grid" id="objectGrid"></div>
   </div>
 
   <div class="result" id="result">Fetch something above to see it flow through the tiers.</div>
-
-  <div class="section-title">Decision feed</div>
-  <div class="feed" id="feed"></div>
 
   <button id="resetBtn" class="reset">Reset cache</button>
 
