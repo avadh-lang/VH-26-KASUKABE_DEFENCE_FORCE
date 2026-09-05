@@ -203,6 +203,7 @@ export default function App() {
               l2={me?.l2_rate ?? 0}
               l3={me?.l3_rate ?? 0}
               miss={Math.max(0, 1 - (me?.hit_rate ?? 0))}
+              running={running}
             />
           </div>
 
@@ -211,8 +212,8 @@ export default function App() {
               <span key={p}><span className="dot" style={{ background: COLORS[p] ?? "#ccc", color: COLORS[p] ?? "#ccc" }} />{p}</span>
             ))}
             <span className="meta-strip">
-              <span className={`badge ${latest.spike_active ? "spike" : "live"}`}>
-                <span className="pulse" />{latest.spike_active ? "SPIKE ACTIVE" : "LIVE"}
+              <span className={`badge ${!running ? "stopped" : latest.spike_active ? "spike" : "live"}`}>
+                <span className="pulse" />{!running ? "STOPPED — showing last state" : latest.spike_active ? "SPIKE ACTIVE" : "LIVE"}
               </span>
               epoch {latest.epoch} · {latest.rate}/s · {latest.scenario}
             </span>

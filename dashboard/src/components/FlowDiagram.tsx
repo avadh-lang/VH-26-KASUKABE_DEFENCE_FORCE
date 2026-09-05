@@ -3,13 +3,23 @@
  * speed on each branch are driven by the real l1/l2/l3/miss rates for this
  * epoch, so watching it *is* watching the hit-rate numbers, just rendered
  * as motion instead of a percentage.
+ *
+ * `running` matters: the <animateMotion> elements below loop forever on
+ * their own, with no idea whether the simulation behind them is still
+ * producing frames — without gating them, stopping the sim would leave
+ * particles flying past a frozen last-known rate forever. (SVGSVGElement's
+ * pauseAnimations()/unpauseAnimations() looks like the right tool for this
+ * but proved unreliable across mount/remount in testing — resume silently
+ * didn't resume. Simplest robust fix: just don't render the animated
+ * particles at all while stopped. Paths/labels stay, dimmed via the
+ * `.stopped` class, so the last state is still visible — just clearly inert.)
  */
 type Branch = { id: string; label: string; sub: string; y: number; rate: number; color: string };
 
 export function FlowDiagram({
-  l1, l2, l3, miss,
+  l1, l2, l3, miss, running,
 }: {
-  l1: number; l2: number; l3: number; miss: number;
+  l1: number; l2: number; l3: number; miss: number; running: boolean;
 }) {
   const branches: Branch[] = [
     { id: "l1", label: "L1", sub: "0.5ms", y: 34, rate: l1, color: "#f28b82" },
@@ -19,7 +29,11 @@ export function FlowDiagram({
   ];
 
   return (
-    <svg viewBox="0 0 560 218" className="flowdiagram" preserveAspectRatio="xMidYMid meet">
+    <svg
+      viewBox="0 0 560 218"
+      className={`flowdiagram ${running ? "" : "stopped"}`}
+      preserveAspectRatio="xMidYMid meet"
+    >
       <defs>
         <filter id="fdglow" x="-60%" y="-60%" width="220%" height="220%">
           <feGaussianBlur stdDeviation="3" result="blur" />
@@ -32,7 +46,7 @@ export function FlowDiagram({
 
       {/* inbound requests -> CACHE MIND */}
       <path id="fd-in" d="M14 109 L150 109" stroke="#5d6674" strokeWidth="1.5" fill="none" strokeDasharray="1 5" strokeLinecap="round" />
-      {Array.from({ length: 3 }).map((_, i) => (
+      {running && Array.from({ length: 3 }).map((_, i) => (
         <circle key={i} r="2.6" fill="#8b96a5">
           <animateMotion dur="1.4s" begin={`${i * 0.47}s`} repeatCount="indefinite">
             <mpath href="#fd-in" />
@@ -51,7 +65,7 @@ export function FlowDiagram({
         const pathId = `fd-${b.id}`;
         const d = `M210 109 C 320 109, 340 ${b.y}, 470 ${b.y}`;
         const active = b.rate > 0.01;
-        const count = active ? Math.max(1, Math.round(b.rate * 4)) : 0;
+        const count = running && active ? Math.max(1, Math.round(b.rate * 4)) : 0;
         const dur = Math.max(0.7, 2.6 - b.rate * 2.0);
         return (
           <g key={b.id}>
