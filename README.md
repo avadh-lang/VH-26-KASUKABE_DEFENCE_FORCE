@@ -3,6 +3,11 @@
 **VH-26 · KASUKABE DEFENCE FORCE** — VCET Hackathon 2026
 Domain: *Application Scaling* · PS: *Adaptive, Application-Aware Cache Management System*
 
+**Live: [cachemind-8voo.onrender.com](https://cachemind-8voo.onrender.com/)** —
+start a simulation and watch CACHE MIND race LRU/LFU/GDS/GDSF in real time,
+on the actual deployed app. Free-tier hosting, so give it ~30-50s to wake
+up if it's been idle a while.
+
 LRU and LFU rank cached objects by **access pattern alone**. They are blind to
 **size** and to the real **latency + $ cost** to regenerate an object from the
 origin. At scale that forces a lose-lose choice: over-provision expensive RAM,
@@ -77,6 +82,23 @@ python -m benchmark.studies ablation           # per-feature contribution
 bash scripts/dev.sh                             # live dashboard → http://localhost:5173
 ```
 
+## Deployment
+
+One Render web service builds the React dashboard and serves it from the
+same FastAPI process as the API — `api/main.py` mounts `dashboard/dist` at
+`/` when it exists, so the whole app (frontend + live simulation) is a
+single URL with no CORS or cross-origin setup needed.
+
+```
+Build:  pip install -r requirements.txt && cd dashboard && npm install && npm run build
+Start:  uvicorn api.main:app --host 0.0.0.0 --port $PORT
+```
+
+For a split frontend/backend deploy instead, `dashboard/src/api.ts` reads
+an optional `VITE_API_BASE` build-time env var to point the built dashboard
+at a backend on a different host (CORS is already enabled in `api/main.py`
+for that case).
+
 ## Architecture
 
 ```
@@ -105,11 +127,13 @@ Every module imports only `common/interfaces.py`. Deep dives:
 
 ## Bonus: the same idea in a browser
 
-[`chrome-extension/`](chrome-extension/) — a small proof-of-concept applying
-the same value-based, 3-tier placement idea to real browser storage
-(in-memory / `chrome.storage.local` / `IndexedDB`) instead of a simulated
-RAM/Redis/cold-store. Not a replacement for the main engine — see its own
-README for what's simplified and why.
+[`chrome-extension/`](chrome-extension/) — applies the same value-based,
+3-tier placement idea to real browser traffic, not a simulation. A
+page-context hook caches actual safe, non-credentialed GET requests on
+whatever site you're browsing (real network calls, real bytes, real
+demote-not-evict placement) across memory / `chrome.storage.local` /
+`IndexedDB`. Not a replacement for the main engine — see its own README
+for what's simplified, the safety rules, and why.
 
 ## Team
 
