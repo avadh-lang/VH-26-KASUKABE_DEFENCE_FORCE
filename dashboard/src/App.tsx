@@ -3,8 +3,10 @@ import {
   Decision, Frame, Meta, PolicySnap, RealPing, getMeta, injectSpike, pingReal, setScenario, setSurge, startSim, stopSim, streamSim,
 } from "./api";
 import { COLORS, MultiLine, TierBars } from "./components/Charts";
+import { AnimatedNumber } from "./components/AnimatedNumber";
 import { CacheGrid } from "./components/CacheGrid";
 import { DecisionExplain } from "./components/DecisionExplain";
+import { FlowDiagram } from "./components/FlowDiagram";
 import { SurgeFader } from "./components/SurgeFader";
 
 const DEFAULT_POLICIES = ["LRU", "LFU", "GDS", "GDSF", "CACHE MIND"];
@@ -169,26 +171,39 @@ export default function App() {
           <div className="grid">
             <div className="card hero">
               <div className="k">CACHE MIND cost saving vs LRU</div>
-              <div className="v">{saving?.saving_pct ?? 0}%</div>
+              <div className="v"><AnimatedNumber text={`${saving?.saving_pct ?? 0}%`} /></div>
               <div className="foot">${saving?.saving_vs_baseline?.toFixed(4) ?? 0} saved so far</div>
             </div>
             <div className="card">
               <div className="k">avg latency</div>
-              <div className="v">{(me?.avg_latency_ms ?? 0).toFixed(1)} ms</div>
+              <div className="v"><AnimatedNumber text={`${(me?.avg_latency_ms ?? 0).toFixed(1)} ms`} /></div>
               <div className="foot">GDSF {(gdsf?.avg_latency_ms ?? 0).toFixed(0)} ms · LRU {(lru?.avg_latency_ms ?? 0).toFixed(0)} ms</div>
             </div>
             <div className="card">
               <div className="k">served from warm tiers</div>
-              <div className="v">{(warm * 100).toFixed(0)}%</div>
+              <div className="v"><AnimatedNumber text={`${(warm * 100).toFixed(0)}%`} /></div>
               <div className="foot">L1 {((me?.l1_rate ?? 0) * 100).toFixed(0)}% · single-tier caches miss these to origin</div>
             </div>
             <div className="card">
               <div className="k">detected regime</div>
               <div className={`v ${latest.spike_active ? "bad" : ""}`} style={latest.spike_active ? undefined : { color: "var(--text)" }}>
-                {me?.regime ?? "—"}
+                <AnimatedNumber text={me?.regime ?? "—"} />
               </div>
               <div className="foot">bandit arm: {me?.bandit_arm ?? "—"}</div>
             </div>
+          </div>
+
+          <div className="chart-card flow-card">
+            <div className="chart-title">
+              Live traffic flow — CACHE MIND routing decisions in motion
+              <span className="hint">particle speed/density = real hit rate per tier</span>
+            </div>
+            <FlowDiagram
+              l1={me?.l1_rate ?? 0}
+              l2={me?.l2_rate ?? 0}
+              l3={me?.l3_rate ?? 0}
+              miss={Math.max(0, 1 - (me?.hit_rate ?? 0))}
+            />
           </div>
 
           <div className="legend">
