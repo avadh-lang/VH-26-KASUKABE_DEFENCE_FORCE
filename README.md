@@ -101,7 +101,7 @@ api/  FastAPI + SSE live simulator  ──►  dashboard/  React — tiers, cost
 Every module imports only `common/interfaces.py`. Deep dives:
 [`docs/PROJECT.md`](docs/PROJECT.md) · [`docs/architecture.md`](docs/architecture.md) ·
 [`docs/originality.md`](docs/originality.md) · [`docs/data-design.md`](docs/data-design.md) ·
-[`docs/demo-script.md`](docs/demo-script.md)
+[`docs/demo-script.md`](docs/demo-script.md) · [`docs/latest-update.md`](docs/latest-update.md)
 
 ## Bonus: the same idea in a browser
 
