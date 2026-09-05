@@ -31,6 +31,18 @@ h1 span { color: var(--muted); font-weight: 400; font-size: 11px; }
 
 .section-title { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; margin: 10px 0 6px; font-weight: 700; }
 
+.livewrap { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.toggle { position: relative; flex: 0 0 auto; cursor: pointer; }
+.toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+.tglTrack { display: block; width: 34px; height: 19px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); transition: background 0.15s, border-color 0.15s; }
+.tglThumb { display: block; width: 13px; height: 13px; margin: 2px; border-radius: 50%; background: var(--muted-dim); transition: transform 0.15s, background 0.15s; }
+.toggle input:checked + .tglTrack { background: rgba(95,224,160,0.18); border-color: var(--good); }
+.toggle input:checked + .tglTrack .tglThumb { transform: translateX(15px); background: var(--good); }
+.toggle input:focus-visible + .tglTrack { outline: 1px solid var(--muted-dim); outline-offset: 2px; }
+.livetext { flex: 1; min-width: 0; }
+.livetitle { font-size: 11.5px; font-weight: 700; color: var(--text); }
+.livesub { font-size: 9.5px; color: var(--muted-dim); margin-top: 1px; }
+
 .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
 .grid button {
   background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px;

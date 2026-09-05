@@ -21,6 +21,24 @@ for (const o of OBJECTS) {
   buttons.set(o.key, b);
 }
 
+const liveToggle = document.getElementById("liveToggle");
+const liveSub = document.getElementById("liveSub");
+
+function paintLive(enabled) {
+  liveToggle.checked = enabled;
+  liveSub.textContent = enabled
+    ? "Watching real GET requests on every tab you browse."
+    : "Off — this tab's requests are not being cached.";
+}
+
+chrome.runtime.sendMessage({ type: "HOOK_STATUS" }, (res) => paintLive(res?.enabled ?? true));
+
+liveToggle.onchange = () => {
+  chrome.runtime.sendMessage({ type: "SET_ENABLED", enabled: liveToggle.checked }, () => {
+    paintLive(liveToggle.checked);
+  });
+};
+
 document.getElementById("resetBtn").onclick = async () => {
   await chrome.runtime.sendMessage({ type: "RESET" });
   for (const b of buttons.values()) b.classList.remove("hit");
@@ -71,3 +89,4 @@ async function refreshSnapshot() {
 }
 
 refreshSnapshot();
+setInterval(refreshSnapshot, 1200); // keep showing real traffic the page makes while this popup stays open
