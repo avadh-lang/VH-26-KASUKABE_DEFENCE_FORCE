@@ -566,6 +566,28 @@ class CacheMind(CachePolicy):
             "l1_access_patterns": patterns,   # periodic/bursty/random mix of what's in L1 right now
         }
 
+    def sample(self, now: float, per_tier: int = 10) -> list[dict]:
+        """
+        A bounded snapshot of what's actually resident right now, for a live
+        "objects entering/leaving the cache" visualisation — not used in any
+        decision, purely observational. Picks the highest-value entries per
+        tier (the ones a viewer would recognise reappearing epoch to epoch)
+        rather than an arbitrary/unstable ordering.
+        """
+        out: list[dict] = []
+        for t in (L1, L2, L3):
+            entries = sorted(self.store.entries(t), key=lambda e: -self._val(e, now))[:per_tier]
+            for e in entries:
+                out.append({
+                    "key": e.key,
+                    "tier": f"L{t}",
+                    "size_kb": round(e.full_size_bytes / 1024.0, 1),
+                    "freq": e.freq,
+                    "pattern": self.predictor.access_pattern(e.key),
+                    "value": round(self._val(e, now), 2),
+                })
+        return out
+
     def _note(self, action: str, key: str, reason: str) -> None:
         self._feed.append({"epoch": self._epoch, "action": action, "key": key, "reason": reason})
 

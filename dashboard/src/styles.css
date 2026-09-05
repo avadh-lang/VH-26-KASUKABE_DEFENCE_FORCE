@@ -311,3 +311,62 @@ button.ping:hover:not(:disabled) { background: rgba(110, 168, 254, 0.1); }
 .tierrow .tnums { flex: 0 0 118px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 11px; }
 .tierlegend { display: flex; gap: 18px; padding: 8px 4px 0; font-size: 10.5px; color: var(--muted-dim); font-family: var(--mono); }
 .tierlegend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+
+/* -------------------------------------------------------------- surge fader */
+
+.surge {
+  display: flex; flex-direction: column; gap: 4px; align-items: center;
+  padding: 5px 10px; border-radius: var(--radius-sm);
+  background: var(--panel2); border: 1px solid var(--line);
+  user-select: none;
+}
+.surge.disabled { opacity: 0.4; }
+.surge-label {
+  display: flex; align-items: center; gap: 6px; font-size: 9.5px; font-weight: 700;
+  letter-spacing: 0.5px; color: var(--muted); font-family: var(--mono);
+}
+.surge-label b { color: var(--text); font-size: 11px; }
+.surge-track {
+  display: flex; align-items: flex-end; gap: 2px; width: 120px; height: 18px;
+  cursor: pointer; padding: 2px 0;
+}
+.surge.disabled .surge-track { cursor: not-allowed; }
+.surge-seg {
+  flex: 1; height: 100%; border-radius: 2px; background: var(--panel);
+  border: 1px solid var(--line-soft); transition: background 0.1s;
+}
+.surge-seg.lit { border-color: transparent; box-shadow: 0 0 6px currentColor; }
+
+/* -------------------------------------------------------------- live cache grid */
+
+.cachegrid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; padding: 4px 10px 10px; }
+.cglane { min-width: 0; }
+.cglabel {
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: var(--mono); font-size: 10.5px; color: var(--muted); font-weight: 700;
+  letter-spacing: 0.5px; padding: 0 2px 6px; border-bottom: 1px solid var(--line-soft); margin-bottom: 6px;
+}
+.cglabel span { color: var(--muted-dim); font-weight: 400; }
+.cgchips {
+  display: flex; flex-wrap: wrap; gap: 5px; align-content: flex-start;
+  min-height: 64px; max-height: 140px; overflow-y: auto;
+}
+.cgchip {
+  display: flex; align-items: center; gap: 5px; padding: 4px 8px; border-radius: 999px;
+  background: var(--panel2); border: 1px solid var(--line); font-family: var(--mono); font-size: 10.5px;
+  color: var(--muted);
+}
+.cgchip.enter { animation: chipIn 0.35s ease both; }
+.cgchip.leave { animation: chipOut 0.4s ease both; }
+.cgdot { width: 6px; height: 6px; border-radius: 50%; box-shadow: 0 0 6px currentColor; flex: 0 0 auto; }
+.cgkey { color: var(--text); opacity: 0.85; }
+.cgempty { color: var(--muted-dim); font-size: 10.5px; font-style: italic; padding: 4px 2px; }
+
+@keyframes chipIn {
+  from { opacity: 0; transform: scale(0.7) translateY(4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes chipOut {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.6); }
+}

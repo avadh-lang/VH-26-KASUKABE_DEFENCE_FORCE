@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Frame, Meta, PolicySnap, RealPing, getMeta, injectSpike, pingReal, setScenario, startSim, stopSim, streamSim,
+  Frame, Meta, PolicySnap, RealPing, getMeta, injectSpike, pingReal, setScenario, setSurge, startSim, stopSim, streamSim,
 } from "./api";
 import { COLORS, MultiLine, TierBars } from "./components/Charts";
+import { CacheGrid } from "./components/CacheGrid";
+import { SurgeFader } from "./components/SurgeFader";
 
 const DEFAULT_POLICIES = ["LRU", "LFU", "GDS", "GDSF", "CACHE MIND"];
 const ME = "CACHE MIND";
@@ -16,8 +18,10 @@ export default function App() {
   const [frames, setFrames] = useState<Frame[]>([]);
   const [spikeMarks, setSpikeMarks] = useState<number[]>([]);
   const [ping, setPing] = useState<RealPing | "loading" | null>(null);
+  const [surge, setSurgeState] = useState(1);
   const esRef = useRef<EventSource | null>(null);
   const wasSpiking = useRef(false);
+  const surgeSendRef = useRef<{ t: number; timer: ReturnType<typeof setTimeout> | null }>({ t: 0, timer: null });
 
   useEffect(() => {
     getMeta().then(setMeta).catch(() => {});
@@ -42,7 +46,24 @@ export default function App() {
     esRef.current?.close(); esRef.current = null;
     if (runId) stopSim(runId);
     setRunId(null);
+    setSurgeState(1);
   }
+  const onSurge = useCallback((v: number) => {
+    setSurgeState(v);
+    if (!runId) return;
+    // throttle the network call to ~10/s during a fast drag, but always
+    // fire the trailing value so the backend ends up exactly where the
+    // handle was dropped
+    const s = surgeSendRef.current;
+    const now = performance.now();
+    if (s.timer) clearTimeout(s.timer);
+    if (now - s.t > 100) {
+      s.t = now;
+      setSurge(runId, v);
+    } else {
+      s.timer = setTimeout(() => { s.t = performance.now(); setSurge(runId, v); }, 100);
+    }
+  }, [runId]);
   function onScenario(s: string) {
     setScen(s);
     if (runId) setScenario(runId, s);
@@ -96,6 +117,7 @@ export default function App() {
           </select>
           {running ? <button onClick={stop}>Stop</button>
                    : <button className="primary" onClick={start}>Start</button>}
+          <SurgeFader value={surge} onChange={onSurge} disabled={!running} />
           <button className="spike" disabled={!running} onClick={() => runId && injectSpike(runId)}>
             ⚡ Inject spike
           </button>
@@ -189,6 +211,14 @@ export default function App() {
               <div className="chart-title">Cache tiers — used / capacity</div>
               <TierBars policies={latest.policies} />
             </div>
+          </div>
+
+          <div className="chart-card" style={{ marginTop: 14 }}>
+            <div className="chart-title">
+              Live cache contents — objects entering / leaving each tier right now
+              <span className="hint">colour = access pattern</span>
+            </div>
+            <CacheGrid sample={me?.sample} />
           </div>
 
           <div className="panels">

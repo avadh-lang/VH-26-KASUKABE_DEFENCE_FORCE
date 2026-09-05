@@ -22,6 +22,7 @@ export type PolicySnap = {
   regime?: string;
   decisions?: { epoch: number; action: string; key: string; reason: string }[];
   l1_access_patterns?: { periodic: number; bursty: number; random: number; new: number };
+  sample?: { key: string; tier: string; size_kb: number; freq: number; pattern: string; value: number }[];
 };
 
 export type Frame = {
@@ -29,6 +30,7 @@ export type Frame = {
   t: number;
   rate: number;
   spike_active: boolean;
+  surge_mult?: number;
   scenario: string;
   policies: PolicySnap[];
   cost_report: {
@@ -73,6 +75,14 @@ export async function setScenario(runId: string, scenario: string) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ scenario }),
+  });
+}
+
+export async function setSurge(runId: string, mult: number) {
+  await fetch(`/api/sim/${runId}/surge`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ mult }),
   });
 }
 
