@@ -1,3 +1,10 @@
+// In dev, Vite proxies "/api" to the local backend (vite.config.ts), so this
+// stays empty and every call below is same-origin. In production the built
+// dashboard is typically deployed separately from the backend (e.g. Vercel +
+// Render), so VITE_API_BASE points straight at the backend's real URL —
+// set at build time, baked into the static bundle.
+const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+
 export type Tier = { tier: string; used_mb: number; cap_mb: number };
 
 export type Explain = {
@@ -54,7 +61,7 @@ export type Frame = {
 export type Meta = { scenarios: string[]; profiles: string[]; policies: string[] };
 
 export async function getMeta(): Promise<Meta> {
-  return (await fetch(`/api/meta`)).json();
+  return (await fetch(`${API_BASE}/api/meta`)).json();
 }
 
 export async function startSim(body: {
@@ -63,7 +70,7 @@ export async function startSim(body: {
   policies: string[];
   speed: number;
 }): Promise<{ run_id: string; start_capacity_mb: number }> {
-  const r = await fetch(`/api/sim/start`, {
+  const r = await fetch(`${API_BASE}/api/sim/start`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -73,11 +80,11 @@ export async function startSim(body: {
 }
 
 export async function injectSpike(runId: string) {
-  await fetch(`/api/sim/${runId}/spike`, { method: "POST" });
+  await fetch(`${API_BASE}/api/sim/${runId}/spike`, { method: "POST" });
 }
 
 export async function setScenario(runId: string, scenario: string) {
-  await fetch(`/api/sim/${runId}/scenario`, {
+  await fetch(`${API_BASE}/api/sim/${runId}/scenario`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ scenario }),
@@ -85,7 +92,7 @@ export async function setScenario(runId: string, scenario: string) {
 }
 
 export async function setSurge(runId: string, mult: number) {
-  await fetch(`/api/sim/${runId}/surge`, {
+  await fetch(`${API_BASE}/api/sim/${runId}/surge`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ mult }),
@@ -93,20 +100,21 @@ export async function setSurge(runId: string, mult: number) {
 }
 
 export async function stopSim(runId: string) {
-  await fetch(`/api/sim/${runId}`, { method: "DELETE" });
+  await fetch(`${API_BASE}/api/sim/${runId}`, { method: "DELETE" });
 }
 
 export type RealPing = { url: string; bytes: number; latency_ms: number; sample: string };
 
 export async function pingReal(resource = "posts"): Promise<RealPing> {
-  const r = await fetch(`/api/real/ping?resource=${encodeURIComponent(resource)}`);
+  const r = await fetch(`${API_BASE}/api/real/ping?resource=${encodeURIComponent(resource)}`);
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 
-export function streamSim(runId: string, onFrame: (f: Frame) => void): EventSource {
-  const es = new EventSource(`/api/sim/${runId}/stream`);
+export function streamSim(runId: string, onFrame: (f: Frame) => void, onError?: () => void): EventSource {
+  const es = new EventSource(`${API_BASE}/api/sim/${runId}/stream`);
   es.addEventListener("epoch", (e) => onFrame(JSON.parse((e as MessageEvent).data)));
   es.addEventListener("done", () => es.close());
+  if (onError) es.onerror = onError;
   return es;
 }

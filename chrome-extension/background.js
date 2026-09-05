@@ -163,13 +163,25 @@ async function lookup(key) {
   return null;
 }
 
+async function recordHit(hit, now) {
+  hit.entry.freq += 1;
+  hit.entry.lastAccess = now;
+  await placeIn(hit.tier, hit.entry, hit.value); // refresh freq/lastAccess in place
+}
+
+function shortUrl(u) {
+  try {
+    const x = new URL(u);
+    const s = x.hostname + x.pathname + x.search;
+    return s.length > 64 ? s.slice(0, 61) + "…" : s;
+  } catch { return u; }
+}
+
 async function handleFetch(url, key) {
   const now = Date.now();
   const hit = await lookup(key);
   if (hit) {
-    hit.entry.freq += 1;
-    hit.entry.lastAccess = now;
-    await placeIn(hit.tier, hit.entry, hit.value); // refresh freq/lastAccess in place
+    await recordHit(hit, now);
     note("hit", key, `served from ${hit.tier}`);
     return { hit: true, tier: hit.tier, latencyMs: 0, value: hit.value, log: decisionLog.slice(0, 12) };
   }
@@ -183,6 +195,37 @@ async function handleFetch(url, key) {
   const entry = newEntry(key, new Blob([text]).size, latencyMs, now);
   await admit(entry, text, now);
   return { hit: false, tier: entry.tier, latencyMs, value: text, log: decisionLog.slice(0, 12) };
+}
+
+/**
+ * The real-traffic path — called from hook.js (via bridge.js) for every
+ * safe, cacheable GET fetch() the *current page itself* makes, on whatever
+ * site the user is actually browsing. Same admit()/lookup() engine as the
+ * manual demo above; the only difference is the key is a real URL instead
+ * of a fixed jsonplaceholder id, and the caller already measured real
+ * network latency for us.
+ */
+async function hookLookup(url) {
+  const now = Date.now();
+  const hit = await lookup(url);
+  if (!hit) return { hit: false };
+  await recordHit(hit, now);
+  note("hit", shortUrl(url), `real page reused this — served from ${hit.tier}, network call skipped`);
+  return { hit: true, body: hit.value, contentType: hit.entry.contentType };
+}
+
+async function hookStore(url, body, contentType, latencyMs) {
+  if (await lookup(url)) return; // already cached by a racing duplicate call
+  const now = Date.now();
+  const entry = newEntry(url, new Blob([body]).size, latencyMs, now);
+  entry.contentType = contentType;
+  note("miss", shortUrl(url), `real network fetch — ${latencyMs.toFixed(0)} ms`);
+  await admit(entry, body, now);
+}
+
+async function isEnabled() {
+  const v = await chrome.storage.local.get({ cm_enabled: true });
+  return !!v.cm_enabled;
 }
 
 async function snapshot() {
@@ -204,6 +247,24 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   if (msg.type === "SNAPSHOT") {
     snapshot().then(sendResponse);
+    return true;
+  }
+  if (msg.type === "HOOK_STATUS") {
+    isEnabled().then((enabled) => sendResponse({ enabled }));
+    return true;
+  }
+  if (msg.type === "HOOK_LOOKUP") {
+    hookLookup(msg.url).then(sendResponse).catch(() => sendResponse({ hit: false }));
+    return true;
+  }
+  if (msg.type === "HOOK_STORE") {
+    hookStore(msg.url, msg.body, msg.contentType, msg.latencyMs)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (msg.type === "SET_ENABLED") {
+    chrome.storage.local.set({ cm_enabled: !!msg.enabled }).then(() => sendResponse({ ok: true }));
     return true;
   }
   if (msg.type === "RESET") {

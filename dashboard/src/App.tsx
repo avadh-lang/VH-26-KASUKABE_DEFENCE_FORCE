@@ -23,9 +23,18 @@ export default function App() {
   const [ping, setPing] = useState<RealPing | "loading" | null>(null);
   const [surge, setSurgeState] = useState(1);
   const [lastExplain, setLastExplain] = useState<Decision | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
   const esRef = useRef<EventSource | null>(null);
   const wasSpiking = useRef(false);
   const surgeSendRef = useRef<{ t: number; timer: ReturnType<typeof setTimeout> | null }>({ t: 0, timer: null });
+  // guards against a dead stream's error handler reviving a sim the user has
+  // since stopped, or double-reconnecting a stream that's already been
+  // superseded by a newer one (see the "getting static" bug: uvicorn's
+  // --reload wipes _SIMS on every backend edit, so any open dashboard tab's
+  // EventSource starts failing silently with no built-in signal of that)
+  const activeStreamRef = useRef(0);
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     getMeta().then(setMeta).catch(() => {});
@@ -38,24 +47,51 @@ export default function App() {
   async function start() {
     stop();
     setFrames([]); setSpikeMarks([]); wasSpiking.current = false; setLastExplain(null);
+    const myStream = ++activeStreamRef.current;
+    reconnectAttemptRef.current = 0;
+    setReconnecting(false);
     const { run_id } = await startSim({ scenario, profile, policies: DEFAULT_POLICIES, speed });
+    if (myStream !== activeStreamRef.current) return; // superseded while startSim() was in flight
     setRunId(run_id);
-    esRef.current = streamSim(run_id, (f) => {
-      if (f.spike_active && !wasSpiking.current) setSpikeMarks((m) => [...m, f.epoch]);
-      wasSpiking.current = f.spike_active;
-      setFrames((prev) => (prev.length > 240 ? [...prev.slice(-240), f] : [...prev, f]));
-      // refresh/prefetch notes are so frequent they'd otherwise crowd a rarer
-      // eviction or tier-move out of the small per-frame decisions window
-      // before anyone saw it — so remember the latest explainable one here,
-      // independent of what's currently in that window.
-      const cm = f.policies.find((p) => p.policy === ME);
-      const withExplain = [...(cm?.decisions ?? [])].reverse().find((d) => d.explain);
-      if (withExplain) setLastExplain(withExplain);
-    });
+    esRef.current = streamSim(
+      run_id,
+      (f) => {
+        reconnectAttemptRef.current = 0;
+        setReconnecting(false);
+        if (f.spike_active && !wasSpiking.current) setSpikeMarks((m) => [...m, f.epoch]);
+        wasSpiking.current = f.spike_active;
+        setFrames((prev) => (prev.length > 240 ? [...prev.slice(-240), f] : [...prev, f]));
+        // refresh/prefetch notes are so frequent they'd otherwise crowd a rarer
+        // eviction or tier-move out of the small per-frame decisions window
+        // before anyone saw it — so remember the latest explainable one here,
+        // independent of what's currently in that window.
+        const cm = f.policies.find((p) => p.policy === ME);
+        const withExplain = [...(cm?.decisions ?? [])].reverse().find((d) => d.explain);
+        if (withExplain) setLastExplain(withExplain);
+      },
+      () => {
+        // the stream died — most often the backend process restarted (e.g. a
+        // --reload triggered by an edit) and forgot every run_id it had.
+        // EventSource's own auto-reconnect just keeps hitting a run_id that
+        // no longer exists, so without this the dashboard would freeze on
+        // its last frame forever with no visible sign anything was wrong.
+        if (myStream !== activeStreamRef.current || reconnectTimerRef.current) return;
+        setReconnecting(true);
+        const attempt = ++reconnectAttemptRef.current;
+        const delay = Math.min(8000, 1000 * attempt);
+        reconnectTimerRef.current = setTimeout(() => {
+          reconnectTimerRef.current = null;
+          if (myStream === activeStreamRef.current) start();
+        }, delay);
+      },
+    );
   }
   function stop() {
+    activeStreamRef.current++; // invalidate any in-flight reconnect tied to the stream we're closing
+    if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
+    setReconnecting(false);
     esRef.current?.close(); esRef.current = null;
-    if (runId) stopSim(runId);
+    if (runId) stopSim(runId).catch(() => {});
     setRunId(null);
     setSurgeState(1);
   }
@@ -212,8 +248,9 @@ export default function App() {
               <span key={p}><span className="dot" style={{ background: COLORS[p] ?? "#ccc", color: COLORS[p] ?? "#ccc" }} />{p}</span>
             ))}
             <span className="meta-strip">
-              <span className={`badge ${!running ? "stopped" : latest.spike_active ? "spike" : "live"}`}>
-                <span className="pulse" />{!running ? "STOPPED — showing last state" : latest.spike_active ? "SPIKE ACTIVE" : "LIVE"}
+              <span className={`badge ${!running ? "stopped" : reconnecting ? "stopped" : latest.spike_active ? "spike" : "live"}`}>
+                <span className="pulse" />
+                {!running ? "STOPPED — showing last state" : reconnecting ? "RECONNECTING — backend restarted" : latest.spike_active ? "SPIKE ACTIVE" : "LIVE"}
               </span>
               epoch {latest.epoch} · {latest.rate}/s · {latest.scenario}
             </span>
