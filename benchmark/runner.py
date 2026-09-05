@@ -19,7 +19,7 @@ from benchmark.driver import SimDriver, RunResult
 from baselines import REGISTRY as BASELINE_REGISTRY
 from engine import CacheMind
 
-POLICY_NAMES = ("LRU", "LFU", "GDSF", "LRU-tiered", "GDSF-tiered", "CM-fixed", "CACHE MIND")
+POLICY_NAMES = ("LRU", "LFU", "GDS", "GDSF", "LRU-tiered", "GDSF-tiered", "CM-fixed", "CACHE MIND")
 RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
 
 
